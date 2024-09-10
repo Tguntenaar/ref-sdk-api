@@ -25,7 +25,7 @@ const options: IFuseOptions<AllowlistedToken> = {
 };
 
 export const searchToken = async (
-  query: string,
+  query: string
 ): Promise<AllowlistedToken[]> => {
   const tokensMetadata = await ftGetTokensMetadata();
   const tokensArray = Object.values(tokensMetadata);
