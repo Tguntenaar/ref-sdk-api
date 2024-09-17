@@ -4,21 +4,13 @@ import { promises as fs } from "fs"; // Using fs.promises to read the file
 import path from "path";
 import cors from "cors";
 import {
-  EstimateSwapView,
-  Transaction,
   WRAP_NEAR_CONTRACT_ID,
-  estimateSwap,
-  fetchAllPools,
   ftGetStorageBalance,
-  getExpectedOutputFromSwapTodos,
-  getStablePools,
-  instantSwap,
   nearDepositTransaction,
   nearWithdrawTransaction,
   percentLess,
   registerAccountOnToken,
   scientificNotationToString,
-  separateRoutes,
 } from "@ref-finance/ref-sdk";
 import Big from "big.js";
 
@@ -40,6 +32,20 @@ interface Token {
   balance: string;
   parsedBalance: string;
   decimals: number;
+}
+
+interface Pool {
+  pool_id: string;
+  token_in: string;
+  token_out: string;
+  amount_in: string;
+  min_amount_out: string;
+}
+
+interface Routes {
+  pools: Pool[];
+  amount_in: string;
+  min_amount_out: string;
 }
 
 app.use(cors());
@@ -155,9 +161,6 @@ app.get("/swap", async (req: Request, res: Response) => {
   const { accountId, tokenIn, tokenOut, amountIn, slippage } = req.query;
 
   try {
-    const { ratedPools, unRatedPools, simplePools } = await fetchAllPools();
-    const stablePools = unRatedPools.concat(ratedPools);
-    const stablePoolsDetail = await getStablePools(stablePools);
     const tokenInData = await searchToken(tokenIn as string);
     const tokenOutData = await searchToken(tokenOut as string);
 
@@ -167,7 +170,6 @@ app.get("/swap", async (req: Request, res: Response) => {
       };
     }
 
-    const sendAmount = amountIn;
     if (tokenInData.id === tokenOutData.id) {
       if (tokenInData.id === WRAP_NEAR_CONTRACT_ID) {
         return {
@@ -178,81 +180,91 @@ app.get("/swap", async (req: Request, res: Response) => {
       return { error: "TokenIn and TokenOut cannot be the same" };
     }
 
-    const refEstimateSwap = (enableSmartRouting: boolean) => {
-      return estimateSwap({
-        tokenIn: tokenInData,
-        tokenOut: tokenOutData,
-        amountIn: sendAmount as string,
-        simplePools,
-        options: {
-          enableSmartRouting,
-          stablePools,
-          stablePoolsDetail,
-        },
-      });
-    };
-
-    const swapTodos: EstimateSwapView[] = await refEstimateSwap(true).catch(
-      () => {
-        return refEstimateSwap(false); // fallback to non-smart routing if unsupported
-      }
+    const sendAmount = Big(amountIn as string)
+      .mul(Big(10).pow(tokenInData.decimals))
+      .toFixed();
+    const swapRes = await (
+      await fetch(
+        `https://smartrouter.ref.finance/findPath?amountIn=${sendAmount}&tokenIn=${tokenInData.id}&tokenOut=${tokenOutData.id}&pathDeep=3&slippage=${slippage}`
+      )
+    ).json();
+    const routes = swapRes.result_data.routes.flatMap(
+      (route: Routes) => route.pools
     );
 
-    const transactionsRef: Transaction[] = await instantSwap({
-      tokenIn: tokenInData,
-      tokenOut: tokenOutData,
-      amountIn: sendAmount as string,
-      swapTodos,
-      slippageTolerance: slippage as unknown as number, // in decimals
-      AccountId: accountId as string,
-    });
+    const receiveAmount = Big(swapRes.result_data.amount_out)
+      .div(Big(10).pow(tokenOutData.decimals))
+      .toFixed();
 
-    // const tokenInStorage = await ftGetStorageBalance(tokenInData.id, accountId as string)
-    // const tokenOutStorage =   await ftGetStorageBalance(tokenOutData.id, accountId as string)
+    const transactions = [];
+    const tokenInStorage = await ftGetStorageBalance(
+      tokenInData.id,
+      accountId as string
+    );
+    const tokenOutStorage = await ftGetStorageBalance(
+      tokenOutData.id,
+      accountId as string
+    );
 
-    // if(!tokenInStorage){
-    //   transactions.unshift({
-    //     receiverId: WRAP_NEAR_CONTRACT_ID,
-    //     functionCalls: [registerAccountOnToken()],
-    //   });
-    // }
     if (tokenInData.id === WRAP_NEAR_CONTRACT_ID) {
-      transactionsRef.splice(
-        -1,
-        0,
-        nearDepositTransaction(sendAmount as string)
-      );
+      transactions.unshift(nearDepositTransaction(amountIn as string));
     }
 
-    const outEstimate = getExpectedOutputFromSwapTodos(
-      swapTodos,
-      tokenOutData.id
-    );
+    transactions.push({
+      receiverId: tokenInData.id,
+      functionCalls: [
+        {
+          methodName: "ft_transfer_call",
+          args: {
+            receiver_id: "v2.ref-finance.near",
+            amount: sendAmount,
+            msg: JSON.stringify({
+              force: 0,
+              actions: routes.flat().map((action: Pool) => ({
+                pool_id: parseInt(action.pool_id),
+                token_in: action.token_in,
+                token_out: action.token_out,
+                amount_in: action.amount_in,
+                min_amount_out: action.min_amount_out,
+              })),
+            }),
+          },
+          gas: "180000000000000",
+          amount: "1",
+        },
+      ],
+    });
 
     if (tokenOutData.id === WRAP_NEAR_CONTRACT_ID) {
-      const routes = separateRoutes(swapTodos, tokenOutData.id);
-
-      const bigEstimate = routes.reduce((acc, cur) => {
-        const curEstimate = Big(cur[cur.length - 1].estimate);
-        return acc.add(curEstimate);
-      }, outEstimate);
-
       const minAmountOut = percentLess(
         0.01,
-        scientificNotationToString(bigEstimate.toString())
+        scientificNotationToString(receiveAmount.toString())
       );
 
-      transactionsRef.push(nearWithdrawTransaction(minAmountOut));
+      transactions.push(nearWithdrawTransaction(minAmountOut));
+    }
+
+    if (!tokenInStorage) {
+      transactions.unshift({
+        receiverId: tokenInData.id,
+        functionCalls: [registerAccountOnToken(accountId as string)],
+      });
+    }
+    if (!tokenOutStorage) {
+      transactions.unshift({
+        receiverId: tokenOutData.id,
+        functionCalls: [registerAccountOnToken(accountId as string)],
+      });
     }
 
     return res.json({
-      transactions: transactionsRef,
-      outEstimate: Big(outEstimate).toFixed(5),
+      transactions: transactions,
+      outEstimate: Big(receiveAmount).toFixed(5),
     });
   } catch (error) {
     console.log(error);
     return res.status(500).json({
-      error: "An error occurred while fetching token metadata",
+      error: "An error occurred while creating swap",
     });
   }
 });
