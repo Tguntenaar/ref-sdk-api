@@ -15,11 +15,13 @@
   "description": "",
   "dependencies": {
     "@ref-finance/ref-sdk": "^1.4.0",
+    "cors": "^2.8.5",
     "express": "^4.20.0",
     "fuse.js": "^7.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.10.0",
+    "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.5.4",
     "@typescript-eslint/eslint-plugin": "^6.5.0",
