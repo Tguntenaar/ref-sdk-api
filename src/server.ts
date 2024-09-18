@@ -13,14 +13,16 @@ import {
   scientificNotationToString,
 } from "@ref-finance/ref-sdk";
 import Big from "big.js";
+import * as dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 const port = 3003;
 
 interface BalanceResp {
-  balance: string;
-  contract_id: string;
-  last_update_block_height: string | null;
+  amount: number;
+  contract: string;
+  symbol: string;
 }
 
 interface Token {
@@ -76,29 +78,21 @@ app.get("/whitelist-tokens", async (req: Request, res: Response) => {
 
     // Fetch prices and balances of the tokens
     if (account) {
-      const balancesResp = await fetch(
-        `https://api.fastnear.com/v1/account/${account}/ft`
-      );
-      userBalances = (await balancesResp.json())?.tokens ?? [];
-      const nearBalanceResp = await (
-        await fetch(`https://api.nearblocks.io/v1/account/${account}`)
-      ).json();
-      // update near balance
-      const contractIdToUpdate = "near";
-      const nearBalance = nearBalanceResp?.account?.[0]?.amount ?? "0";
-      const index = userBalances.findIndex(
-        (i) => i.contract_id === contractIdToUpdate
-      );
-
-      if (index !== -1) {
-        userBalances[index].balance = nearBalance;
-      } else {
-        userBalances.push({
-          contract_id: contractIdToUpdate,
-          balance: nearBalance,
-          last_update_block_height: null,
-        });
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      const apiKey = process.env.PIKESPEAK_KEY;
+      if (apiKey) {
+        headers["x-api-key"] = apiKey;
       }
+      userBalances = await (
+        await fetch(`https://api.pikespeak.ai/account/balance/${account}`, {
+          method: "GET",
+          headers,
+        })
+      ).json();
+
+      userBalances = userBalances.filter( i => i.symbol !== "NEAR [Storage]")
     }
 
     const tokenIds = Object.keys(tokens);
@@ -134,17 +128,17 @@ app.get("/whitelist-tokens", async (req: Request, res: Response) => {
     tokenIds.forEach((id, index) => {
       const resp = tokenMetadataResponses[index];
       tokens[id].price = resp?.price ?? "0";
-      tokens[id].balance =
-        userBalances.find((i: BalanceResp) => i.contract_id === id)?.balance ??
+      tokens[id].parsedBalance =
+        userBalances.find((i: BalanceResp) => i.contract.toLowerCase() === id)?.amount.toString() ??
         "0";
-      tokens[id].parsedBalance = Big(tokens[id].balance)
-        .div(Big(10).pow(tokens[id]?.decimals))
+      tokens[id].balance = Big(tokens[id].parsedBalance)
+        .mul(Big(10).pow(tokens[id]?.decimals))
         .toFixed(4);
     });
 
     const sortedTokens = Object.values(tokens).sort((a, b) => {
-      const balanceA = parseFloat(a.balance);
-      const balanceB = parseFloat(b.balance);
+      const balanceA = parseFloat(a.parsedBalance);
+      const balanceB = parseFloat(b.parsedBalance);
       return balanceB - balanceA; // Sort in descending order
     });
 
