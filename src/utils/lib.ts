@@ -6,11 +6,6 @@ import {
   WRAP_NEAR_CONTRACT_ID,
   ftGetStorageBalance,
   ftViewFunction,
-  nearDepositTransaction,
-  nearWithdrawTransaction,
-  percentLess,
-  registerAccountOnToken,
-  scientificNotationToString,
 } from "@ref-finance/ref-sdk";
 import { SwapOptions } from "./interface";
 import Big from "big.js";
@@ -101,7 +96,7 @@ export const swapFromServer = async ({
               account_id: accountId,
             },
             gas: "30000000000000",
-            amount: STORAGE_TO_REGISTER_WITH_MFT,
+            amount: toNonDivisibleNumber(24, STORAGE_TO_REGISTER_WITH_MFT),
           });
         } else {
           tokenOutActions.push({
@@ -120,7 +115,7 @@ export const swapFromServer = async ({
             account_id: accountId,
           },
           gas: "30000000000000",
-          amount: STORAGE_TO_REGISTER_WITH_MFT,
+          amount: toNonDivisibleNumber(24, STORAGE_TO_REGISTER_WITH_MFT),
         });
       }
       transactions.push({
@@ -198,7 +193,7 @@ export const wrapNear = async ({
         account_id: accountId,
       },
       gas: "30000000000000",
-      amount: STORAGE_TO_REGISTER_WITH_MFT,
+      amount:toNonDivisibleNumber(24, STORAGE_TO_REGISTER_WITH_MFT),
     });
   }
 
