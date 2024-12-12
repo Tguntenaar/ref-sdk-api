@@ -5,6 +5,8 @@ import path from "path";
 import cors from "cors";
 import Big from "big.js";
 import * as dotenv from "dotenv";
+import helmet from "helmet";
+import rateLimit from 'express-rate-limit';
 import {
   BalanceResp,
   SmartRouter,
@@ -14,13 +16,20 @@ import { swapFromServer, unWrapNear, wrapNear } from "./utils/lib";
 dotenv.config();
 
 const app = express();
-const port = 3003;
+const hostname = process.env.HOSTNAME || "0.0.0.0";
+const port = Number(process.env.PORT || 3000);
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+});
 
 app.use(cors());
+app.use(helmet());
 app.use(express.json());
+app.use("/api/", apiLimiter);
 
-app.get("/token-metadata", async (req: Request, res: Response) => {
+app.get("/api/token-metadata", async (req: Request, res: Response) => {
   try {
     const { token } = req.query as { token: string };
     const filePath = path.join(__dirname, "tokens.json");
@@ -35,7 +44,7 @@ app.get("/token-metadata", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/whitelist-tokens", async (req: Request, res: Response) => {
+app.get("/api/whitelist-tokens", async (req: Request, res: Response) => {
   try {
     const { account } = req.query;
     const filePath = path.join(__dirname, "tokens.json");
@@ -118,7 +127,7 @@ app.get("/whitelist-tokens", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/swap", async (req: Request, res: Response) => {
+app.get("/api/swap", async (req: Request, res: Response) => {
   const { accountId, tokenIn, tokenOut, amountIn, slippage } = req.query as {
     accountId: string;
     tokenIn: string;
@@ -191,6 +200,6 @@ app.get("/swap", async (req: Request, res: Response) => {
 });
 
 // Start the server
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+app.listen(port, hostname, 100, () => {
+  console.log(`Server is running on http://${hostname}:${port}`);
 });
