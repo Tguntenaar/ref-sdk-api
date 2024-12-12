@@ -5,7 +5,7 @@
   "scripts": {
     "fmt": "prettier --write '**/*.{js,jsx,ts,tsx,json,mjs}'",
     "lint": "tsc --pretty --noEmit && eslint .",
-    "build": "tsc",
+    "build": "tsc && cp src/tokens.json dist/",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts"
   },
@@ -20,10 +20,13 @@
     "dotenv": "^16.4.5",
     "express": "^4.20.0",
     "fuse.js": "^7.0.0",
-    "node-cache": "^5.1.2"
+    "node-cache": "^5.1.2",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.10.0",
+    "@flydotio/dockerfile": "^0.5.9",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.5.4",
