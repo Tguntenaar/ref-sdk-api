@@ -6,12 +6,8 @@ import cors from "cors";
 import Big from "big.js";
 import * as dotenv from "dotenv";
 import helmet from "helmet";
-import rateLimit from 'express-rate-limit';
-import {
-  BalanceResp,
-  SmartRouter,
-  Token,
-} from "./utils/interface";
+import rateLimit from "express-rate-limit";
+import { BalanceResp, SmartRouter, Token } from "./utils/interface";
 import { swapFromServer, unWrapNear, wrapNear } from "./utils/lib";
 dotenv.config();
 
@@ -28,6 +24,9 @@ app.use(cors());
 app.use(helmet());
 app.use(express.json());
 app.use("/api/", apiLimiter);
+
+const NodeCache = require("node-cache");
+const cache = new NodeCache({ stdTTL: 600, checkperiod: 120 }); // Cache for 10 min
 
 app.get("/api/token-metadata", async (req: Request, res: Response) => {
   try {
@@ -106,7 +105,10 @@ app.get("/api/whitelist-tokens", async (req: Request, res: Response) => {
         decimals: token.decimals,
         parsedBalance,
         balance,
-        price: priceData.price !== "N/A" ? Big(priceData.price ?? "").toFixed(4)  : priceData.price,
+        price:
+          priceData.price !== "N/A"
+            ? Big(priceData.price ?? "").toFixed(4)
+            : priceData.price,
         symbol: token.symbol,
         name: token.name,
         icon: token.icon,
@@ -184,7 +186,6 @@ app.get("/api/swap", async (req: Request, res: Response) => {
       amountIn: amountIn,
       accountId: accountId,
       swapsToDoServer: swapRes.result_data,
-  
     });
 
     return res.json({
@@ -196,6 +197,157 @@ app.get("/api/swap", async (req: Request, res: Response) => {
     return res.status(500).json({
       error: "An error occurred while creating swap",
     });
+  }
+});
+
+app.get("/api/token-balance-history", async (req: Request, res: Response) => {
+  const { account_id, period, token_id, interval } = req.query;
+  const cachekey = `${account_id}:${period}:${interval}:${token_id}`;
+  const cachedData = cache.get(cachekey);
+
+  if (cachedData) {
+    console.log(
+      ` cached response for key: ${account_id}:${period}:${interval}:${token_id}`
+    );
+    return res.json(cachedData);
+  }
+
+  const RPC_URL = "https://archival-rpc.mainnet.near.org";
+  const balanceHistory = [];
+  const parsedInterval = parseInt(interval as string);
+  const parsedPeriod = parseFloat(period as string);
+
+  const filePath = path.join(__dirname, "tokens.json");
+  const data = await fs.readFile(filePath, "utf-8");
+  const tokens: Record<string, Token> = JSON.parse(data);
+  let balance;
+
+  function convertFTBalance(value: string, decimals: number) {
+    return (parseFloat(value) / Math.pow(10, decimals)).toFixed(2);
+  }
+
+  try {
+    const blockResponse = await fetch(RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "block",
+        params: { finality: "final" },
+      }),
+    });
+
+    const blockData = await blockResponse.json();
+    if (!blockData.result) {
+      console.error("Failed to fetch latest block");
+      return;
+    }
+
+    const endBlock = blockData.result.header.height;
+    const BLOCKS_IN_ONE_HOUR = 3200;
+    const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * parsedPeriod);
+
+    for (let i = 0; i < parsedInterval; i++) {
+      const block_id = endBlock - BLOCKS_IN_PERIOD * i;
+      if (block_id < 0) break;
+
+      const blockResponse = await fetch(RPC_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: block_id,
+          method: "block",
+          params: { block_id },
+        }),
+      });
+      const blockData = await blockResponse.json();
+      if (!blockData.result) {
+        console.error("Failed to fetch block " + block_id);
+        continue;
+      }
+
+      if (token_id !== "near") {
+        const accountResponse = await fetch(RPC_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "dontcare", // Arbitrary ID for matching responses
+            method: "query",
+            params: {
+              request_type: "call_function",
+              block_id,
+              account_id: token_id,
+              method_name: "ft_balance_of",
+              args_base64: btoa(JSON.stringify({ account_id })), // Base64 encode arguments
+            },
+          }),
+        });
+        const accountData = await accountResponse.json();
+        if (accountData.result) {
+          balance = String.fromCharCode(...accountData.result.result);
+          // @ts-ignore
+          balance = balance ? balance.replaceAll('"', "") : "0";
+        } else
+          console.error("Failed to fetch account state for block " + block_id);
+      } else {
+        const accountResponse = await fetch(RPC_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "query",
+            params: {
+              request_type: "view_account",
+              block_id,
+              account_id,
+            },
+          }),
+        });
+        const accountData = await accountResponse.json();
+        if (accountData.result) balance = accountData.result.amount.toString();
+        else
+          console.error("Failed to fetch account state for block " + block_id);
+      }
+
+      balanceHistory.push({
+        timestamp: blockData.result.header.timestamp / 1e6,
+        date:
+          parsedPeriod <= 1
+            ? new Date(
+                blockData.result.header.timestamp / 1e6
+              ).toLocaleTimeString(
+                "en-US",
+                parsedPeriod < 1
+                  ? { hour: "numeric", minute: "numeric" }
+                  : { hour: "numeric" }
+              )
+            : new Date(
+                blockData.result.header.timestamp / 1e6
+              ).toLocaleDateString(
+                "en-US",
+                parsedPeriod < 24 * 31
+                  ? { month: "short", day: "2-digit" }
+                  : { year: "numeric", month: "short" }
+              ),
+        balance:
+          balance && token_id
+            ? convertFTBalance(balance, tokens[token_id as string].decimals)
+            : 0,
+      });
+    }
+
+    const respData = balanceHistory.reverse();
+
+    cache.set(cachekey, respData);
+    return res.json(respData);
+  } catch (error) {
+    cache.del(cachekey);
+    console.error("Error fetching balance history:", error);
+    throw error;
   }
 });
 
