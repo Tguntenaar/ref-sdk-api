@@ -329,9 +329,11 @@ app.get("/api/token-balance-history", async (req: Request, res: Response) => {
                 blockData.result.header.timestamp / 1e6
               ).toLocaleDateString(
                 "en-US",
-                parsedPeriod < 24 * 31
+                parsedPeriod < 24 * 30
                   ? { month: "short", day: "2-digit" }
-                  : { year: "numeric", month: "short" }
+                  : parsedPeriod === 24 * 30
+                  ? { month: "short", year: "2-digit" }
+                  : { year: "numeric" }
               ),
         balance:
           balance && token_id
