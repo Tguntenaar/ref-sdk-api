@@ -391,11 +391,12 @@ function formatDate(timestamp: number, period: number): string {
 // Add this new endpoint before the server.listen call
 app.get("/api/all-token-balance-history", async (req: Request, res: Response) => {
   const { account_id, token_id } = req.query;
+  const forwardedFor = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const cachekey = `all:${account_id}:${token_id}`;
   const cachedData = cache.get(cachekey);
 
   if (cachedData) {
-    console.log(` cached response for key: ${cachekey}`);
+    console.log(` cached response for key: ${cachekey}, client: ${forwardedFor}`);
     return res.json(cachedData);
   }
 
