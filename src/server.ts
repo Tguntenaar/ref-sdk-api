@@ -12,6 +12,7 @@ import { swapFromServer, unWrapNear, wrapNear } from "./utils/lib";
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
 
