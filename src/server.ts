@@ -201,158 +201,164 @@ app.get("/api/swap", async (req: Request, res: Response) => {
   }
 });
 
+function convertFTBalance(value: string, decimals: number) {
+  return (parseFloat(value) / Math.pow(10, decimals)).toFixed(2);
+}
+
+async function fetchWithRetry(body: any, retries = 3): Promise<any> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch("https://archival-rpc.mainnet.near.org", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return await response.json();
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * i));
+    }
+  }
+}
+
+
 app.get("/api/token-balance-history", async (req: Request, res: Response) => {
   const { account_id, period, token_id, interval } = req.query;
   const cachekey = `${account_id}:${period}:${interval}:${token_id}`;
   const cachedData = cache.get(cachekey);
 
   if (cachedData) {
-    console.log(
-      ` cached response for key: ${account_id}:${period}:${interval}:${token_id}`
-    );
+    console.log(` cached response for key: ${cachekey}`);
     return res.json(cachedData);
   }
 
-  const RPC_URL = "https://archival-rpc.mainnet.near.org";
-  const balanceHistory = [];
   const parsedInterval = parseInt(interval as string);
   const parsedPeriod = parseFloat(period as string);
 
   const filePath = path.join(__dirname, "tokens.json");
   const data = await fs.readFile(filePath, "utf-8");
   const tokens: Record<string, Token> = JSON.parse(data);
-  let balance;
 
-  function convertFTBalance(value: string, decimals: number) {
-    return (parseFloat(value) / Math.pow(10, decimals)).toFixed(2);
-  }
-
+ 
   try {
-    const blockResponse = await fetch(RPC_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "block",
-        params: { finality: "final" },
-      }),
+    const blockData = await fetchWithRetry({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "block",
+      params: { finality: "final" },
     });
 
-    const blockData = await blockResponse.json();
     if (!blockData.result) {
-      console.error("Failed to fetch latest block");
-      return;
+      throw new Error("Failed to fetch latest block");
     }
 
     const endBlock = blockData.result.header.height;
     const BLOCKS_IN_ONE_HOUR = 3200;
     const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * parsedPeriod);
 
-    for (let i = 0; i < parsedInterval; i++) {
-      const block_id = endBlock - BLOCKS_IN_PERIOD * i;
-      if (block_id < 0) break;
+    // Prepare all block heights we need to fetch
+    const blockHeights = Array.from({ length: parsedInterval }, (_, i) => 
+      endBlock - BLOCKS_IN_PERIOD * i
+    ).filter(block => block > 0);
 
-      const blockResponse = await fetch(RPC_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    // Fetch all blocks in parallel
+    const blockPromises = blockHeights.map(block_id =>
+      fetchWithRetry({
+        jsonrpc: "2.0",
+        id: block_id,
+        method: "block",
+        params: { block_id },
+      })
+    );
+
+    // Fetch all balances in parallel
+    const balancePromises = blockHeights.map(block_id => {
+      if (token_id === "near") {
+        return fetchWithRetry({
           jsonrpc: "2.0",
-          id: block_id,
-          method: "block",
-          params: { block_id },
-        }),
-      });
-      const blockData = await blockResponse.json();
-      if (!blockData.result) {
-        console.error("Failed to fetch block " + block_id);
-        continue;
-      }
-
-      if (token_id !== "near") {
-        const accountResponse = await fetch(RPC_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: "dontcare", // Arbitrary ID for matching responses
-            method: "query",
-            params: {
-              request_type: "call_function",
-              block_id,
-              account_id: token_id,
-              method_name: "ft_balance_of",
-              args_base64: btoa(JSON.stringify({ account_id })), // Base64 encode arguments
-            },
-          }),
+          id: 1,
+          method: "query",
+          params: {
+            request_type: "view_account",
+            block_id,
+            account_id,
+          },
         });
-        const accountData = await accountResponse.json();
-        if (accountData.result) {
-          balance = String.fromCharCode(...accountData.result.result);
-          // @ts-ignore
-          balance = balance ? balance.replaceAll('"', "") : "0";
-        } else
-          console.error("Failed to fetch account state for block " + block_id);
       } else {
-        const accountResponse = await fetch(RPC_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "query",
-            params: {
-              request_type: "view_account",
-              block_id,
-              account_id,
-            },
-          }),
+        return fetchWithRetry({
+          jsonrpc: "2.0",
+          id: "dontcare",
+          method: "query",
+          params: {
+            request_type: "call_function",
+            block_id,
+            account_id: token_id,
+            method_name: "ft_balance_of",
+            args_base64: btoa(JSON.stringify({ account_id })),
+          },
         });
-        const accountData = await accountResponse.json();
-        if (accountData.result) balance = accountData.result.amount.toString();
-        else
-          console.error("Failed to fetch account state for block " + block_id);
+      }
+    });
+
+    // Wait for all requests to complete
+    const [blocks, balances] = await Promise.all([
+      Promise.all(blockPromises),
+      Promise.all(balancePromises),
+    ]);
+
+    // Process results
+    const balanceHistory = blocks.map((blockData, index) => {
+      const balanceData = balances[index];
+      let balance = "0";
+
+      if (token_id === "near") {
+        balance = balanceData.result?.amount?.toString() || "0";
+      } else {
+        if (balanceData.result) {
+          balance = String.fromCharCode(...balanceData.result.result);
+          balance = balance ? balance.replace(/"/g, "") : "0";
+        }
       }
 
-      balanceHistory.push({
-        timestamp: blockData.result.header.timestamp / 1e6,
-        date:
-          parsedPeriod <= 1
-            ? new Date(
-                blockData.result.header.timestamp / 1e6
-              ).toLocaleTimeString(
-                "en-US",
-                parsedPeriod < 1
-                  ? { hour: "numeric", minute: "numeric" }
-                  : { hour: "numeric" }
-              )
-            : new Date(
-                blockData.result.header.timestamp / 1e6
-              ).toLocaleDateString(
-                "en-US",
-                parsedPeriod < 24 * 30
-                  ? { month: "short", day: "2-digit" }
-                  : parsedPeriod === 24 * 30
-                  ? { month: "short", year: "2-digit" }
-                  : { year: "numeric" }
-              ),
-        balance:
-          balance && token_id
-            ? convertFTBalance(balance, tokens[token_id as string].decimals)
-            : 0,
-      });
-    }
+      const timestamp = blockData.result.header.timestamp / 1e6;
+      return {
+        timestamp,
+        date: formatDate(timestamp, parsedPeriod),
+        balance: balance ? convertFTBalance(balance, tokens[token_id as string].decimals) : "0",
+      };
+    });
 
     const respData = balanceHistory.reverse();
-
     cache.set(cachekey, respData);
     return res.json(respData);
+
   } catch (error) {
     cache.del(cachekey);
     console.error("Error fetching balance history:", error);
-    throw error;
+    return res.status(500).json({ error: "Failed to fetch balance history" });
   }
 });
+
+// Helper function to format dates
+function formatDate(timestamp: number, period: number): string {
+  const date = new Date(timestamp);
+  if (period <= 1) {
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: period >= 1 ? undefined : "numeric"
+    });
+  }
+  
+  if (period < 24 * 30) {
+    return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
+  }
+  
+  if (period === 24 * 30) {
+    return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+  }
+  
+  return date.toLocaleDateString("en-US", { year: "numeric" });
+}
 
 // Start the server
 app.listen(port, hostname, 100, () => {
