@@ -223,10 +223,29 @@ async function fetchWithRetry(body: any, retries = 3): Promise<any> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      return await response.json();
+
+      if (!response.ok) {
+        throw new Error(`HTTP error on rpc call! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      // Check for RPC errors
+      if (data.error) {
+        throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
+      }
+
+      // Validate the response has required data
+      if (!data.result) {
+        throw new Error('Invalid response: missing result');
+      }
+
+      return data;
     } catch (error) {
+      console.error(`Attempt ${i + 1} failed:`, error);
       if (i === retries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 1000 * i));
+      // Exponential backoff: 1s, 2s, 4s
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
     }
   }
 }
