@@ -157,7 +157,6 @@ export const swapFromServer = async ({
     ],
   });
 
- 
   return transactions;
 };
 
@@ -193,18 +192,14 @@ export const wrapNear = async ({
         account_id: accountId,
       },
       gas: "30000000000000",
-      amount:toNonDivisibleNumber(24, STORAGE_TO_REGISTER_WITH_MFT),
+      amount: toNonDivisibleNumber(24, STORAGE_TO_REGISTER_WITH_MFT),
     });
   }
 
   return transaction;
 };
 
-export const unWrapNear = async ({
-  amountIn,
-}: {
-  amountIn: string;
-}) => {
+export const unWrapNear = async ({ amountIn }: { amountIn: string }) => {
   const transaction: Transaction = {
     receiverId: WRAP_NEAR_CONTRACT_ID,
     functionCalls: [
