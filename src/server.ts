@@ -658,7 +658,6 @@ app.get(
 );
 
 const totalTxnsPerPage = 20; // Return 20 items per page
-const CACHE_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 app.get("/api/transactions-transfer-history", async (req, res) => {
   const { page = 1, lockupContract, treasuryDaoID } = req.query;
@@ -678,13 +677,8 @@ app.get("/api/transactions-transfer-history", async (req, res) => {
 
   try {
     // If cache is empty or older than 10 minutes, fetch new data
-    if (
-      !cachedData ||
-      !cachedTimestamp ||
-      currentTime - cachedTimestamp > CACHE_EXPIRY_TIME
-    ) {
+    if (!cachedData || !cachedTimestamp) {
       const accounts: any[] = [treasuryDaoID];
-      console.log({ lockupContract });
       if (lockupContract) {
         accounts.push(lockupContract);
       }
@@ -725,8 +719,8 @@ app.get("/api/transactions-transfer-history", async (req, res) => {
 
         // Deduplicate cached data based on timestamp
         cachedData = deduplicateByTimestamp(updatedData);
-        cache.set(cacheKey, cachedData);
-        cache.set(`${cacheKey}-timestamp`, currentTime); // Save the current timestamp
+        cache.set(cacheKey, cachedData, 0);
+        cache.set(`${cacheKey}-timestamp`, currentTime, 120);
       }
     }
 
@@ -748,8 +742,8 @@ app.get("/api/transactions-transfer-history", async (req, res) => {
       cachedData = deduplicateByTimestamp(cachedData);
 
       // Save the updated data to the cache
-      cache.set(cacheKey, cachedData);
-      cache.set(`${cacheKey}-timestamp`, currentTime); // Save the updated timestamp
+      cache.set(cacheKey, cachedData, 0);
+      cache.set(`${cacheKey}-timestamp`, currentTime, 120);
     }
 
     const endIndex = requestedPage * totalTxnsPerPage;
