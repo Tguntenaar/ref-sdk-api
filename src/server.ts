@@ -27,7 +27,7 @@ const port = Number(process.env.PORT || 3000);
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minutes
-  max: 100, // limit each IP to 100 requests per minute
+  max: 180, // limit each IP to 100 requests per minute
 });
 
 app.use(cors());
