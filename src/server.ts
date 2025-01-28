@@ -9,7 +9,15 @@ import helmet from "helmet";
 import axios from "axios";
 import rateLimit from "express-rate-limit";
 import { BalanceResp, SmartRouter, Token } from "./utils/interface";
-import { swapFromServer, unWrapNear, wrapNear } from "./utils/lib";
+import {
+  deduplicateByTimestamp,
+  fetchAdditionalPage,
+  fetchPikespeakEndpoint,
+  sortByDate,
+  swapFromServer,
+  unWrapNear,
+  wrapNear,
+} from "./utils/lib";
 dotenv.config();
 
 const app = express();
@@ -391,7 +399,6 @@ app.get("/api/near-price", async (req: Request, res: Response) => {
   for (const endpoint of apiEndpoints) {
     try {
       const response = await axios.get(endpoint);
-
       let price: number | null = null;
 
       // Parse response based on the API used
@@ -406,7 +413,7 @@ app.get("/api/near-price", async (req: Request, res: Response) => {
       // If price is valid, cache and return it
       if (price) {
         console.log(`Fetched price from ${endpoint}: $${price}`);
-        cache.set(cacheKey, price);
+        cache.set(cacheKey, price, 50); // for 50 seconds
         return res.json({ price, source: endpoint });
       }
     } catch (error: any) {
@@ -649,6 +656,113 @@ app.get(
     }
   }
 );
+
+const totalTxnsPerPage = 20; // Return 20 items per page
+const CACHE_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+app.get("/api/transactions-transfer-history", async (req, res) => {
+  const { page = 1, lockupContract, treasuryDaoID } = req.query;
+
+  if (!treasuryDaoID) {
+    return res.status(400).send({ error: "treasuryDaoID is required" });
+  }
+
+  const requestedPage = parseInt(page as string, 10);
+  const cacheKey = `${treasuryDaoID}-${lockupContract || "no-lockup"}`;
+
+  // Retrieve cached raw data and timestamp (before sorting)
+  let cachedData = cache.get(cacheKey) || [];
+  let cachedTimestamp = cache.get(`${cacheKey}-timestamp`);
+
+  const currentTime = Date.now();
+
+  try {
+    // If cache is empty or older than 10 minutes, fetch new data
+    if (
+      !cachedData ||
+      !cachedTimestamp ||
+      currentTime - cachedTimestamp > CACHE_EXPIRY_TIME
+    ) {
+      const accounts: any[] = [treasuryDaoID];
+      console.log({ lockupContract });
+      if (lockupContract) {
+        accounts.push(lockupContract);
+      }
+
+      // Fetch transfers for all accounts (treasuryDaoID + lockupContract if provided)
+      const latestPagePromises = accounts.flatMap((account) => [
+        fetchPikespeakEndpoint(
+          `https://api.pikespeak.ai/account/near-transfer/${account}?limit=${totalTxnsPerPage}&offset=0`
+        ),
+        fetchPikespeakEndpoint(
+          `https://api.pikespeak.ai/account/ft-transfer/${account}?limit=${totalTxnsPerPage}&offset=0`
+        ),
+      ]);
+      const latestPageResults = await Promise.all(latestPagePromises);
+
+      if (latestPageResults.some((result: any) => !result.ok)) {
+        return res
+          .status(500)
+          .send({ error: "Failed to fetch the latest page" });
+      }
+
+      const latestPageData = latestPageResults.flatMap(
+        (result: any) => result.body
+      );
+
+      // Check for updates: Compare the raw API data (not sorted)
+      const latestPageDataLength = latestPageData.length;
+      const cachedSlice = cachedData.slice(0, latestPageDataLength); // Get the same length slice from the cached data
+
+      // Only update if the latest page data differs from the cached slice
+      if (
+        cachedData.length === 0 ||
+        JSON.stringify(latestPageData) !== JSON.stringify(cachedSlice)
+      ) {
+        console.log("Updates detected, fetching new data...");
+
+        const updatedData = [...latestPageData, ...cachedData];
+
+        // Deduplicate cached data based on timestamp
+        cachedData = deduplicateByTimestamp(updatedData);
+        cache.set(cacheKey, cachedData);
+        cache.set(`${cacheKey}-timestamp`, currentTime); // Save the current timestamp
+      }
+    }
+
+    // Check if additional pages need to be fetched
+    const totalCachedPages = Math.ceil(
+      cachedData.length / (totalTxnsPerPage * 2)
+    );
+
+    if (requestedPage > totalCachedPages) {
+      const additionalData = await fetchAdditionalPage(
+        totalTxnsPerPage,
+        treasuryDaoID as string,
+        lockupContract as string | null,
+        totalCachedPages
+      );
+
+      // Add the newly fetched data and deduplicate it
+      cachedData = [...cachedData, ...additionalData];
+      cachedData = deduplicateByTimestamp(cachedData);
+
+      // Save the updated data to the cache
+      cache.set(cacheKey, cachedData);
+      cache.set(`${cacheKey}-timestamp`, currentTime); // Save the updated timestamp
+    }
+
+    const endIndex = requestedPage * totalTxnsPerPage;
+    const pageData = sortByDate(cachedData.slice(0, endIndex));
+
+    return res.send({
+      data: pageData,
+    });
+  } catch (error) {
+    console.error("Error fetching data:", error);
+    return res.status(500).send({ error: "An error occurred" });
+  }
+});
 
 // Start the server
 app.listen(port, hostname, 100, () => {
