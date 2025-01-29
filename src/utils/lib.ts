@@ -9,6 +9,7 @@ import {
 } from "@ref-finance/ref-sdk";
 import { SwapOptions } from "./interface";
 import Big from "big.js";
+import axios from "axios";
 
 const NO_REQUIRED_REGISTRATION_TOKEN_IDS = [
   "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
@@ -157,7 +158,6 @@ export const swapFromServer = async ({
     ],
   });
 
- 
   return transactions;
 };
 
@@ -193,18 +193,14 @@ export const wrapNear = async ({
         account_id: accountId,
       },
       gas: "30000000000000",
-      amount:toNonDivisibleNumber(24, STORAGE_TO_REGISTER_WITH_MFT),
+      amount: toNonDivisibleNumber(24, STORAGE_TO_REGISTER_WITH_MFT),
     });
   }
 
   return transaction;
 };
 
-export const unWrapNear = async ({
-  amountIn,
-}: {
-  amountIn: string;
-}) => {
+export const unWrapNear = async ({ amountIn }: { amountIn: string }) => {
   const transaction: Transaction = {
     receiverId: WRAP_NEAR_CONTRACT_ID,
     functionCalls: [
@@ -219,3 +215,75 @@ export const unWrapNear = async ({
   };
   return transaction;
 };
+
+export async function fetchPikespeakEndpoint(endpoint: string) {
+  try {
+    const options = {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.PIKESPEAK_KEY,
+      },
+    };
+    const response = await axios.get(endpoint, options);
+    return { ok: true, body: response.data };
+  } catch (error: any) {
+    console.error(`Error fetching data from ${endpoint}`, error.message);
+    return { ok: false, body: [] };
+  }
+}
+
+// Utility function to sort by date
+export function sortByDate(items: any[]) {
+  return items.sort(
+    (a, b) => parseInt(b.timestamp, 10) - parseInt(a.timestamp, 10)
+  );
+}
+
+// Utility function to remove duplicate entries based on timestamp
+export function deduplicateByTimestamp(data: any[]) {
+  const seenTimestamps = new Set();
+  return data.filter((item) => {
+    if (seenTimestamps.has(item.timestamp)) {
+      return false; // Skip duplicate
+    }
+    seenTimestamps.add(item.timestamp);
+    return true;
+  });
+}
+
+export async function fetchAdditionalPage(
+  totalTxnsPerPage: number,
+  treasuryDaoID: string,
+  lockupContract: string | null,
+  existingPageCount: number
+) {
+  const promises: any[] = [];
+  const accounts = [treasuryDaoID];
+
+  if (lockupContract) {
+    accounts.push(lockupContract);
+  }
+
+  // Prepare the request for the next page
+  const offset = totalTxnsPerPage * existingPageCount;
+
+  for (const account of accounts) {
+    promises.push(
+      fetchPikespeakEndpoint(
+        `https://api.pikespeak.ai/account/near-transfer/${account}?limit=${totalTxnsPerPage}&offset=${offset}`
+      ),
+      fetchPikespeakEndpoint(
+        `https://api.pikespeak.ai/account/ft-transfer/${account}?limit=${totalTxnsPerPage}&offset=${offset}`
+      )
+    );
+  }
+
+  const results = await Promise.all(promises);
+
+  if (results.some((result) => !result.ok)) {
+    throw new Error("Failed to fetch additional page data");
+  }
+
+  return results.flatMap((result) => result.body);
+}

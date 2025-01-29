@@ -49,7 +49,6 @@ export interface SwapOptions {
   slippageTolerance?: number;
   accountId: string;
   swapsToDoServer: IEstimateSwapServerView;
-  
 }
 
 export interface FTStorageBalance {
