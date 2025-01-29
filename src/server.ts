@@ -224,29 +224,32 @@ function convertFTBalance(value: string, decimals: number) {
   return (parseFloat(value) / Math.pow(10, decimals)).toFixed(2);
 }
 
-async function fetchWithRetry(body: any, retries = 3): Promise<any> {
+async function fetchWithFastnear(block: any, isLatest = false): Promise<any> {
+  const retries = 2;
   for (let i = 0; i < retries; i++) {
     try {
-      const response = await fetch("https://archival-rpc.mainnet.near.org", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const response = await fetch(
+        isLatest
+          ? "https://mainnet.neardata.xyz/v0/last_block/final"
+          : `https://mainnet.neardata.xyz/v0/block/${block}`
+      );
 
       if (!response.ok) {
-        throw new Error(`HTTP error on rpc call! status: ${response.status}`);
+        throw new Error(
+          `HTTP error on Fastnear call! status: ${response.status}`
+        );
       }
 
       const data = await response.json();
 
-      // Check for RPC errors
+      // Check for fastnear errors
       if (data.error) {
-        throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
+        throw new Error(`Fastnear error: ${JSON.stringify(data.error)}`);
       }
 
       // Validate the response has required data
-      if (!data.result) {
-        throw new Error("Invalid response: missing result");
+      if (!data.block) {
+        throw new Error("Invalid response: missing block");
       }
 
       return data;
@@ -260,124 +263,71 @@ async function fetchWithRetry(body: any, retries = 3): Promise<any> {
     }
   }
 }
+let rpcIndex = 0;
 
-app.get("/api/token-balance-history", async (req: Request, res: Response) => {
-  const { account_id, period, token_id, interval } = req.query;
-  const cachekey = `${account_id}:${period}:${interval}:${token_id}`;
-  const cachedData = cache.get(cachekey);
+const rpcs = [
+  "https://archival-rpc.mainnet.near.org",
+  "https://archival-rpc.mainnet.pagoda.co",
+  "https://archival-rpc.mainnet.fastnear.com",
+];
 
-  if (cachedData) {
-    console.log(` cached response for key: ${cachekey}`);
-    return res.json(cachedData);
+async function queryMultipleRPC(queryFunction: any) {
+  const queryRPC = async (rpcUrl: any) => {
+    const response = await queryFunction(rpcUrl);
+    return response;
+  };
+  let resultObj;
+  for (let n = 0; n < rpcs.length; n++) {
+    const rpcUrl = rpcs[(n + rpcIndex) % rpcs.length];
+    try {
+      resultObj = await queryRPC(rpcUrl);
+      if (resultObj && !resultObj.error) {
+        break;
+      }
+    } catch (e) {}
   }
+  rpcIndex++;
+  return resultObj;
+}
 
-  const parsedInterval = parseInt(interval as string);
-  const parsedPeriod = parseFloat(period as string);
+async function fetchWithRetry(body: any): Promise<any> {
+  return queryMultipleRPC(async (rpcUrl: string) => {
+    try {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-  const filePath = path.join(__dirname, "tokens.json");
-  const data = await fs.readFile(filePath, "utf-8");
-  const tokens: Record<string, Token> = JSON.parse(data);
+      if (!response.ok) {
+        throw new Error(`HTTP error on RPC call! status: ${response.status}`);
+      }
 
-  try {
-    const blockData = await fetchWithRetry({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "block",
-      params: { finality: "final" },
-    });
+      const data = await response.json();
 
-    if (!blockData.result) {
-      throw new Error("Failed to fetch latest block");
+      // Exit early if UNKNOWN_ACCOUNT error occurs
+      if (data.error?.cause?.name === "UNKNOWN_ACCOUNT") {
+        console.warn(`Skipping: UNKNOWN_ACCOUNT for ${body.params.account_id}`);
+        return Promise.resolve({
+          ok: true,
+        });
+      }
+
+      if (data.error) {
+        throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
+      }
+
+      if (!data.result) {
+        throw new Error("Invalid response: missing result");
+      }
+
+      return data;
+    } catch (error) {
+      console.error(`RPC failed on ${rpcUrl}:`, error);
+      return null; // Return null on failure to try another RPC
     }
-
-    const endBlock = blockData.result.header.height;
-    const BLOCKS_IN_ONE_HOUR = 3200;
-    const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * parsedPeriod);
-
-    // Prepare all block heights we need to fetch
-    const blockHeights = Array.from(
-      { length: parsedInterval },
-      (_, i) => endBlock - BLOCKS_IN_PERIOD * i
-    ).filter((block) => block > 0);
-
-    // Fetch all blocks in parallel
-    const blockPromises = blockHeights.map((block_id) =>
-      fetchWithRetry({
-        jsonrpc: "2.0",
-        id: block_id,
-        method: "block",
-        params: { block_id },
-      })
-    );
-
-    // Fetch all balances in parallel
-    const balancePromises = blockHeights.map((block_id) => {
-      if (token_id === "near") {
-        return fetchWithRetry({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "query",
-          params: {
-            request_type: "view_account",
-            block_id,
-            account_id,
-          },
-        });
-      } else {
-        return fetchWithRetry({
-          jsonrpc: "2.0",
-          id: "dontcare",
-          method: "query",
-          params: {
-            request_type: "call_function",
-            block_id,
-            account_id: token_id,
-            method_name: "ft_balance_of",
-            args_base64: btoa(JSON.stringify({ account_id })),
-          },
-        });
-      }
-    });
-
-    // Wait for all requests to complete
-    const [blocks, balances] = await Promise.all([
-      Promise.all(blockPromises),
-      Promise.all(balancePromises),
-    ]);
-
-    // Process results
-    const balanceHistory = blocks.map((blockData, index) => {
-      const balanceData = balances[index];
-      let balance = "0";
-
-      if (token_id === "near") {
-        balance = balanceData.result?.amount?.toString() || "0";
-      } else {
-        if (balanceData.result) {
-          balance = String.fromCharCode(...balanceData.result.result);
-          balance = balance ? balance.replace(/"/g, "") : "0";
-        }
-      }
-
-      const timestamp = blockData.result.header.timestamp / 1e6;
-      return {
-        timestamp,
-        date: formatDate(timestamp, parsedPeriod),
-        balance: balance
-          ? convertFTBalance(balance, tokens[token_id as string].decimals)
-          : "0",
-      };
-    });
-
-    const respData = balanceHistory.reverse();
-    cache.set(cachekey, respData);
-    return res.json(respData);
-  } catch (error) {
-    cache.del(cachekey);
-    console.error("Error fetching balance history:", error);
-    return res.status(500).json({ error: "Failed to fetch balance history" });
-  }
-});
+  });
+}
 
 app.get("/api/near-price", async (req: Request, res: Response) => {
   const cacheKey = `near-price`;
@@ -525,7 +475,6 @@ function formatDate(timestamp: number, period: number): string {
   return date.toLocaleDateString("en-US", { year: "numeric" });
 }
 
-// Add this new endpoint before the server.listen call
 app.get(
   "/api/all-token-balance-history",
   async (req: Request, res: Response) => {
@@ -547,18 +496,13 @@ app.get(
     const tokens: Record<string, Token> = JSON.parse(data);
 
     try {
-      const blockData = await fetchWithRetry({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "block",
-        params: { finality: "final" },
-      });
+      const blockData = await fetchWithFastnear("", true);
 
-      if (!blockData.result) {
+      if (!blockData.block) {
         throw new Error("Failed to fetch latest block");
       }
 
-      const endBlock = blockData.result.header.height;
+      const endBlock = blockData.block.header.height;
       const BLOCKS_IN_ONE_HOUR = 3200;
 
       // Fetch balance history for each period
@@ -572,25 +516,26 @@ app.get(
           ).filter((block) => block > 0);
 
           const blockPromises = blockHeights.map((block_id) =>
-            fetchWithRetry({
-              jsonrpc: "2.0",
-              id: block_id,
-              method: "block",
-              params: { block_id },
-            })
+            fetchWithFastnear(block_id)
           );
 
           const balancePromises = blockHeights.map((block_id) => {
             if (token_id === "near") {
               return fetchWithRetry({
                 jsonrpc: "2.0",
-                id: 1,
+                id: "dontcare",
                 method: "query",
                 params: {
                   request_type: "view_account",
                   block_id,
                   account_id,
                 },
+              }).catch((error) => {
+                console.error(
+                  `Failed to fetch NEAR balance at block ${block_id}:`,
+                  error
+                );
+                return null;
               });
             } else {
               return fetchWithRetry({
@@ -604,21 +549,24 @@ app.get(
                   method_name: "ft_balance_of",
                   args_base64: btoa(JSON.stringify({ account_id })),
                 },
+              }).catch((error) => {
+                console.error(
+                  `Failed to fetch token balance at block ${block_id}:`,
+                  error
+                );
+                return null;
               });
             }
           });
-
           const [blocks, balances] = await Promise.all([
             Promise.all(blockPromises),
             Promise.all(balancePromises),
           ]);
-
           const balanceHistory = blocks.map((blockData, index) => {
             const balanceData = balances[index];
             let balance = "0";
-
             if (token_id === "near") {
-              balance = balanceData.result?.amount?.toString() || "0";
+              balance = balanceData?.result?.amount?.toString() || "0";
             } else {
               if (balanceData.result) {
                 balance = String.fromCharCode(...balanceData.result.result);
@@ -626,7 +574,7 @@ app.get(
               }
             }
 
-            const timestamp = blockData.result.header.timestamp / 1e6;
+            const timestamp = blockData.block.header.timestamp / 1e6;
             return {
               timestamp,
               date: formatDate(timestamp, value),
