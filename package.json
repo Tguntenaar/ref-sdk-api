@@ -15,14 +15,15 @@
   "description": "",
   "dependencies": {
     "@ref-finance/ref-sdk": "^1.4.0",
-    "react": ">=16",
+    "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.20.0",
-    "fuse.js": "^7.0.0",
-    "node-cache": "^5.1.2",
     "express-rate-limit": "^7.4.1",
-    "helmet": "^8.0.0"
+    "fuse.js": "^7.0.0",
+    "helmet": "^8.0.0",
+    "node-cache": "^5.1.2",
+    "react": ">=16"
   },
   "devDependencies": {
     "@eslint/js": "^9.10.0",
