@@ -1,9 +1,33 @@
 import axios from "axios";
+import NodeCache from "node-cache";
 
-export async function fetchWithRetry(body: any, retries = 3): Promise<any> {
-  for (let i = 0; i < retries; i++) {
+const RPC_ENDPOINTS = [
+  "https://archival-rpc.mainnet.near.org",
+  "https://free.rpc.fastnear.com",
+  "https://rpc.web4.near.page",
+  "https://near.lava.build",
+  // Add more RPC endpoints here as needed
+];
+
+// Initialize cache with default TTL of 1 week
+const rpcCache = new NodeCache({ stdTTL: 3600*24*7, checkperiod: 3600*24 });
+
+export async function fetchFromRPC(body: any, disableCache: boolean = false): Promise<any> {
+  // Use stringified body as cache key
+  const cacheKey = JSON.stringify(body);
+  
+  // Check cache first
+  const cachedResult = rpcCache.get(cacheKey);
+  if (cachedResult && !disableCache) {
+    return cachedResult;
+  }
+
+  let lastError: Error | null = null;
+
+  // Try each RPC endpoint in sequence
+  for (const endpoint of RPC_ENDPOINTS) {
     try {
-      const response = await axios.post("https://archival-rpc.mainnet.near.org", body, {
+      const response = await axios.post(endpoint, body, {
         headers: { "Content-Type": "application/json" },
       });
 
@@ -20,14 +44,18 @@ export async function fetchWithRetry(body: any, retries = 3): Promise<any> {
         throw new Error("Invalid response: missing result");
       }
 
+      // Store successful response in cache
+      rpcCache.set(cacheKey, data);
+
       return data;
     } catch (error) {
-      console.error(`Attempt ${i + 1} failed:`, error);
-      if (i === retries - 1) throw error;
-      // Exponential backoff: 1s, 2s, 4s
-      await new Promise((resolve) =>
-        setTimeout(resolve, 1000 * Math.pow(2, i))
-      );
+      console.error(`RPC request failed for ${endpoint}:`, error);
+      lastError = error as Error;
+      // Continue to next endpoint
     }
   }
+
+  // If we get here, all endpoints failed
+  console.error('All RPC endpoints failed');
+  throw lastError;
 }

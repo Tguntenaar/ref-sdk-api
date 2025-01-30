@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { Token } from "./utils/interface";
-import { fetchWithRetry } from "./utils/fetch-with-retry";
+import { fetchFromRPC } from "./utils/fetch-with-retry";
 import { formatDate } from "./utils/format-date";
 import { convertFTBalance } from "./utils/convert-ft-balance";
 export type TokenBalanceHistoryParams = {
@@ -33,12 +33,12 @@ export async function getTokenBalanceHistory(
   const tokens: Record<string, Token> = JSON.parse(data);
 
   try {
-    const blockData = await fetchWithRetry({
+    const blockData = await fetchFromRPC({
       jsonrpc: "2.0",
       id: 1,
       method: "block",
       params: { finality: "final" },
-    });
+    }, true);
 
     if (!blockData.result) {
       throw new Error("Failed to fetch latest block");
@@ -54,7 +54,7 @@ export async function getTokenBalanceHistory(
     ).filter((block) => block > 0);
 
     const blockPromises = blockHeights.map((block_id) =>
-      fetchWithRetry({
+      fetchFromRPC({
         jsonrpc: "2.0",
         id: block_id,
         method: "block",
@@ -64,7 +64,7 @@ export async function getTokenBalanceHistory(
 
     const balancePromises = blockHeights.map((block_id) => {
       if (token_id === "near") {
-        return fetchWithRetry({
+        return fetchFromRPC({
           jsonrpc: "2.0",
           id: 1,
           method: "query",
@@ -75,7 +75,7 @@ export async function getTokenBalanceHistory(
           },
         });
       } else {
-        return fetchWithRetry({
+        return fetchFromRPC({
           jsonrpc: "2.0",
           id: "dontcare",
           method: "query",
