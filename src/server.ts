@@ -11,6 +11,7 @@ import { getNearPrice } from "./near-price";
 import { getFTTokens } from "./ft-tokens";
 import { getAllTokenBalanceHistory, AllTokenBalanceHistoryParams } from "./all-token-balance-history";
 import { getTransactionsTransferHistory, TransferHistoryParams } from "./transactions-transfer-history";
+import crypto from "crypto";
 dotenv.config();
 
 const app = express();
@@ -30,16 +31,6 @@ app.use("/api/", apiLimiter);
 
 const NodeCache = require("node-cache");
 const cache = new NodeCache({ stdTTL: 600, checkperiod: 120 }); // Cache for 10 min
-
-// Add this constant at the top level of the file, after the imports
-const periodMap = [
-  { period: "1H", value: 1 / 6, interval: 6 },
-  { period: "1D", value: 1, interval: 12 },
-  { period: "1W", value: 24, interval: 8 },
-  { period: "1M", value: 24 * 2, interval: 15 },
-  { period: "1Y", value: 24 * 30, interval: 12 },
-  { period: "All", value: 24 * 365, interval: 10 },
-];
 
 app.get("/api/token-metadata", async (req: Request, res: Response) => {
   try {
@@ -123,17 +114,32 @@ app.get("/api/ft-tokens", async (req: Request, res: Response) => {
 });
 
 
+const preventDub = new NodeCache({ stdTTL: 2, checkperiod: 2 });
+
 // Add this new endpoint before the server.listen call
 app.get(
   "/api/all-token-balance-history",
   async (req: Request, res: Response) => {
+    const { account_id, token_id } = req.query;
+
+    if (!account_id || !token_id) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+  
     try {
-      const { account_id, token_id } = req.query;
+      const ip = req.ip;
+      const bodyHash = crypto.createHash('md5').update(JSON.stringify(req.query)).digest('hex');
       const forwardedFor = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+      const key = `${ip}:${bodyHash}:${forwardedFor}`;
+
+      const isDuplicateRequest = preventDub.get(key);
+      if (isDuplicateRequest) {
+        return res.status(429).json({ error: "Too many requests" });
+      }  
       
-      if (!account_id || !token_id) {
-        return res.status(400).json({ error: "Missing required parameters" });
-      }
+      // Set the cache to true for 2 seconds to prevent duplicate requests
+      preventDub.set(key, true, 2);
 
       const params: AllTokenBalanceHistoryParams = {
         account_id: account_id as string | string[],
@@ -142,6 +148,7 @@ app.get(
       };
 
       const result = await getAllTokenBalanceHistory(params, cache);
+
       return res.json(result);
     } catch (error) {
       console.error("Error fetching all balance history:", error);
@@ -167,6 +174,6 @@ app.get("/api/transactions-transfer-history", async (req: Request, res: Response
 });
 
 // Start the server
-app.listen(port, hostname, 100, () => {
+app.listen(port, hostname, () => {
   console.log(`Server is running on http://${hostname}:${port}`);
 });

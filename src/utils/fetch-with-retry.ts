@@ -36,7 +36,7 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false): Pr
 
       // Check for RPC errors
       if (data.error) {
-        throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
+        throw new Error(`RPC ${data.error.cause.name}: ${data.error.data} ${data.error.cause.info.block_height}`);
       }
 
       // Validate the response has required data
@@ -51,11 +51,8 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false): Pr
     } catch (error) {
       console.error(`RPC request failed for ${endpoint}:`, error);
       lastError = error as Error;
-      // Continue to next endpoint
     }
   }
 
-  // If we get here, all endpoints failed
-  console.error('All RPC endpoints failed');
-  throw lastError;
+  return 0;
 }
