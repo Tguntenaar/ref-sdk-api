@@ -4,6 +4,8 @@ import { Token } from "./utils/interface";
 import { fetchFromRPC } from "./utils/fetch-with-retry";
 import { formatDate } from "./utils/format-date";
 import { convertFTBalance } from "./utils/convert-ft-balance";
+import { tokens } from "./constants/tokens";
+
 export type TokenBalanceHistoryParams = {
   account_id: string;
   period: string;
@@ -27,10 +29,6 @@ export async function getTokenBalanceHistory(
 
   const parsedInterval = parseInt(interval);
   const parsedPeriod = parseFloat(period);
-
-  const filePath = path.join(__dirname, "tokens.json");
-  const data = await fs.readFile(filePath, "utf-8");
-  const tokens: Record<string, Token> = JSON.parse(data);
 
   try {
     const blockData = await fetchFromRPC({

@@ -1,10 +1,10 @@
-# fly.toml app configuration file generated for ref-sdk-api on 2024-12-12T11:23:30+01:00
+# fly.toml app configuration file generated for ref-sdk-api-test on 2025-01-31T15:33:05-06:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'ref-sdk-api-test'
-primary_region = 'ams'
+app = 'ref-sdk-api-cold-haze-1300'
+primary_region = 'dfw'
 
 [build]
 
@@ -17,10 +17,9 @@ min_machines_running = 1
 processes = ['app']
 
 [[vm]]
-memory = '2gb'
-swap_size_mb = 512
+memory = '1gb'
 cpu_kind = 'shared'
-cpus = 2
+cpus = 1
 
 [deploy]
 release_command = 'npx prisma migrate deploy'

@@ -5,7 +5,7 @@
   "scripts": {
     "fmt": "prettier --write '**/*.{js,jsx,ts,tsx,json,mjs}'",
     "lint": "tsc --pretty --noEmit && eslint .",
-    "build": "tsc && cp src/tokens.json dist/",
+    "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts"
   },

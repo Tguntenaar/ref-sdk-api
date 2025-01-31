@@ -3,7 +3,6 @@ import cors from "cors";
 import * as dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { getTokenMetadata } from "./token-metadata";
 import { getWhitelistTokens } from "./whitelist-tokens";
 import { getSwap, SwapParams } from "./swap";
 import { getTokenBalanceHistory, TokenBalanceHistoryParams } from "./token-balance-history";
@@ -12,6 +11,7 @@ import { getFTTokens } from "./ft-tokens";
 import { getAllTokenBalanceHistory } from "./all-token-balance-history";
 import { getTransactionsTransferHistory, TransferHistoryParams } from "./transactions-transfer-history";
 import prisma from "./prisma";
+import { tokens } from "./constants/tokens";
 dotenv.config();
 
 const app = express();
@@ -20,8 +20,8 @@ const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
 
 const apiLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minutes
-  max: 180, // limit each IP to 100 requests per minute
+  windowMs: 30 * 1000,
+  max: 180,
 });
 
 app.use(cors());
@@ -35,7 +35,7 @@ const cache = new NodeCache({ stdTTL: 600, checkperiod: 120 }); // Cache for 10 
 app.get("/api/token-metadata", async (req: Request, res: Response) => {
   try {
     const { token } = req.query as { token: string };
-    const tokenMetadata = await getTokenMetadata(token);
+    const tokenMetadata = tokens[token as keyof typeof tokens];
     res.json(tokenMetadata);
   } catch (error) {
     console.log(error);
@@ -147,6 +147,23 @@ app.get(
       if (isCached) {
         return res.json(isCached);
       }
+         
+      const ip = req.ip;
+      const tooManyRequestKey = `all-token-balance-history:${ip}:${account_id}:${token_id}`;
+      if (cache.get(tooManyRequestKey)) {
+        const result = await prisma.tokenBalanceHistory.findFirst({
+          where: {
+            account_id,
+            token_id,
+          },
+          orderBy: {
+            timestamp: 'desc'
+          },
+        });
+        return res.status(200).json(result?.balance_history);
+      }
+
+      cache.set(tooManyRequestKey, true, 2);
       
       const result = await getAllTokenBalanceHistory(cache, multipleUserKey, account_id, token_id);
 
