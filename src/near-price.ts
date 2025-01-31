@@ -1,4 +1,5 @@
 import axios from "axios";
+import prisma from './prisma';
 
 type NearPriceCache = {
   get: (key: string) => any;
@@ -35,7 +36,13 @@ export async function getNearPrice(cache: NearPriceCache) {
 
       if (price) {
         console.log(`Fetched price from ${endpoint}: $${price}`);
-        cache.set(cacheKey, price, 50); // for 50 seconds
+        await prisma.nearPrice.create({
+          data: {
+            price,
+            source: endpoint
+          }
+        })
+        cache.set(cacheKey, { price, source: endpoint }, 50); // for 50 seconds
         return { price, source: endpoint };
       }
     } catch (error: any) {

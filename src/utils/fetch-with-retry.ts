@@ -3,9 +3,8 @@ import NodeCache from "node-cache";
 
 const RPC_ENDPOINTS = [
   "https://archival-rpc.mainnet.near.org",
-  "https://free.rpc.fastnear.com",
-  "https://rpc.web4.near.page",
-  "https://near.lava.build",
+  "https://archival-rpc.mainnet.pagoda.co",
+  "https://archival-rpc.mainnet.fastnear.com",
   // Add more RPC endpoints here as needed
 ];
 

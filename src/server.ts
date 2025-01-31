@@ -9,9 +9,9 @@ import { getSwap, SwapParams } from "./swap";
 import { getTokenBalanceHistory, TokenBalanceHistoryParams } from "./token-balance-history";
 import { getNearPrice } from "./near-price";
 import { getFTTokens } from "./ft-tokens";
-import { getAllTokenBalanceHistory, AllTokenBalanceHistoryParams } from "./all-token-balance-history";
+import { getAllTokenBalanceHistory } from "./all-token-balance-history";
 import { getTransactionsTransferHistory, TransferHistoryParams } from "./transactions-transfer-history";
-import crypto from "crypto";
+import prisma from "./prisma";
 dotenv.config();
 
 const app = express();
@@ -88,9 +88,18 @@ app.get("/api/near-price", async (req: Request, res: Response) => {
     const result = await getNearPrice(cache);
     return res.json(result);
   } catch (error) {
-    return res.status(500).json({ 
-      error: "Failed to fetch NEAR price from all sources." 
-    });
+    try {
+      const response = await prisma.nearPrice.findFirst({
+       orderBy: {
+        timestamp:'desc'
+       }
+      })
+      return res.status(200).json(response);
+    } catch (error) {
+      return res.status(500).json({ 
+        error: "Failed to fetch NEAR price from all sources." 
+      });
+    }
   }
 });
 
@@ -105,6 +114,14 @@ app.get("/api/ft-tokens", async (req: Request, res: Response) => {
     const result = await getFTTokens(account_id, cache);
     return res.json(result);
   } catch (error) {
+    const result = await prisma.fTToken.findFirst({
+      where: {
+        account_id: req.query.account_id as string,
+      },
+      orderBy: {
+        timestamp: 'desc'
+      }
+    });
     console.error("Error fetching FT tokens:", error);
     if (error instanceof Error && error.message === "No FT tokens found") {
       return res.status(404).json({ error: error.message });
@@ -114,45 +131,40 @@ app.get("/api/ft-tokens", async (req: Request, res: Response) => {
 });
 
 
-const preventDub = new NodeCache({ stdTTL: 2, checkperiod: 2 });
-
 // Add this new endpoint before the server.listen call
 app.get(
   "/api/all-token-balance-history",
   async (req: Request, res: Response) => {
     const { account_id, token_id } = req.query;
 
-    if (!account_id || !token_id) {
+    if (!account_id || !token_id || typeof account_id !== "string" || typeof token_id !== "string") {
       return res.status(400).json({ error: "Missing required parameters" });
     }
-  
+
     try {
-      const ip = req.ip;
-      const bodyHash = crypto.createHash('md5').update(JSON.stringify(req.query)).digest('hex');
-      const forwardedFor = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-
-      const key = `${ip}:${bodyHash}:${forwardedFor}`;
-
-      const isDuplicateRequest = preventDub.get(key);
-      if (isDuplicateRequest) {
-        return res.status(429).json({ error: "Too many requests" });
-      }  
+      const multipleUserKey = `all:${account_id}:${token_id}`;
+      const isCached = cache.get(multipleUserKey);
+      if (isCached) {
+        return res.json(isCached);
+      }
       
-      // Set the cache to true for 2 seconds to prevent duplicate requests
-      preventDub.set(key, true, 2);
-
-      const params: AllTokenBalanceHistoryParams = {
-        account_id: account_id as string | string[],
-        token_id: token_id as string | string[],
-        forwardedFor: forwardedFor as string | string[],
-      };
-
-      const result = await getAllTokenBalanceHistory(params, cache);
+      const result = await getAllTokenBalanceHistory(cache, multipleUserKey, account_id, token_id);
 
       return res.json(result);
     } catch (error) {
       console.error("Error fetching all balance history:", error);
-      return res.status(500).json({ error: "Failed to fetch balance history" });
+
+      const result = await prisma.tokenBalanceHistory.findFirst({
+        where: {
+          account_id,
+          token_id,
+        },
+        orderBy: {
+          timestamp: 'desc'
+        },
+      });
+
+      return res.status(200).json(result?.balance_history);
     }
   }
 );

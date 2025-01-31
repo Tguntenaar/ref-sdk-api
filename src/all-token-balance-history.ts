@@ -4,17 +4,11 @@ import { Token } from "./utils/interface";
 import { fetchFromRPC } from "./utils/fetch-with-retry";
 import { formatDate } from "./utils/format-date";
 import { convertFTBalance } from "./utils/convert-ft-balance";
-
+import prisma from "./prisma";
 type AllTokenBalanceHistoryCache = {
   get: (key: string) => any;
   set: (key: string, value: any, ttl?: number) => void;
   del: (key: string) => void;
-};
-
-export type AllTokenBalanceHistoryParams = {
-  account_id: string | string[];
-  token_id: string | string[];
-  forwardedFor: string | string[];
 };
 
 const periodMap = [
@@ -27,16 +21,16 @@ const periodMap = [
 ];
 
 export async function getAllTokenBalanceHistory(
-  params: AllTokenBalanceHistoryParams,
-  cache: AllTokenBalanceHistoryCache
+  cache: AllTokenBalanceHistoryCache,
+  cacheKey: string,
+  account_id: string,
+  token_id: string,
 ) {
-  const { account_id, token_id, forwardedFor } = params;
-  const cacheKey = `all:${account_id}:${token_id}`;
   const cachedData = cache.get(cacheKey);
 
   if (cachedData) {
     console.log(
-      ` cached response for key: ${cacheKey}, client: ${forwardedFor}`
+      ` cached response for key: ${cacheKey}`
     );
     return cachedData;
   }
@@ -145,6 +139,14 @@ export async function getAllTokenBalanceHistory(
     const respData = Object.fromEntries(
       allPeriodHistories.map(({ period, data }) => [period, data])
     );
+
+    await prisma.tokenBalanceHistory.create({
+      data: {
+        account_id,
+        token_id,
+        balance_history: respData,
+      },
+    });
 
     cache.set(cacheKey, respData);
     return respData;

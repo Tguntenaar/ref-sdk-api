@@ -1,0 +1,37 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model TokenBalanceHistory {
+  id              String   @id @default(uuid())
+  account_id      String
+  token_id        String
+  balance_history Json
+  timestamp       DateTime @default(now())
+}
+
+model FTToken {
+  id                 String   @id @default(uuid())
+  account_id         String
+  totalCumulativeAmt Float
+  fts                Json
+  timestamp          DateTime @default(now())
+}
+
+model NearPrice {
+  id        String   @id @default(uuid())
+  price     Float
+  source    String
+  timestamp DateTime @default(now())
+}
