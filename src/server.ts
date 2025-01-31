@@ -138,16 +138,18 @@ app.get(
     const { account_id, token_id } = req.query;
 
     if (!account_id || !token_id || typeof account_id !== "string" || typeof token_id !== "string") {
-      return res.status(400).json({ error: "Missing required parameters" });
+      return res.status(400).json({ error: "Missing required parameters account_id and token_id" });
     }
 
     try {
       const multipleUserKey = `all:${account_id}:${token_id}`;
       const isCached = cache.get(multipleUserKey);
       if (isCached) {
+        console.log(`Cache hit for all-token-balance-history for ${account_id} and ${token_id}`);
         return res.json(isCached);
       }
-         
+    
+      // This happens when it is not cached and the front end is requesting 3x in a second due to BOS
       const ip = req.ip;
       const tooManyRequestKey = `all-token-balance-history:${ip}:${account_id}:${token_id}`;
       if (cache.get(tooManyRequestKey)) {
@@ -160,6 +162,7 @@ app.get(
             timestamp: 'desc'
           },
         });
+        console.log(`439 Returning from cache for ${account_id} and ${token_id}`);
         return res.status(200).json(result?.balance_history);
       }
 
