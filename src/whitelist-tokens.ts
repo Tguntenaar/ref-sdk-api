@@ -1,14 +1,9 @@
-import { promises as fs } from "fs";
-import path from "path";
 import Big from "big.js";
 import axios from "axios";
-import { BalanceResp, Token } from "./utils/interface";
+import { BalanceResp } from "./utils/interface";
+import { tokens } from "./constants/tokens";
 
 export async function getWhitelistTokens(account?: string | string[]) {
-  const filePath = path.join(__dirname, "tokens.json");
-  const data = await fs.readFile(filePath, "utf-8");
-  const tokens: Record<string, Token> = JSON.parse(data);
-
   // Fetch prices and balances concurrently
   const fetchBalancesPromise = account
     ? axios.get(`https://api.pikespeak.ai/account/balance/${account}`, {

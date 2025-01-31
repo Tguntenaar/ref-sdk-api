@@ -1,5 +1,3 @@
-import path from "path";
-import fs from "fs/promises";
 import {tokens} from "../constants/tokens";
 
 export interface TokenMetadata {

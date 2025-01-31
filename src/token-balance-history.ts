@@ -1,6 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
-import { Token } from "./utils/interface";
 import { fetchFromRPC } from "./utils/fetch-with-retry";
 import { formatDate } from "./utils/format-date";
 import { convertFTBalance } from "./utils/convert-ft-balance";
