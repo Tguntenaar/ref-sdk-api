@@ -36,6 +36,11 @@ app.get("/api/token-metadata", async (req: Request, res: Response) => {
   try {
     const { token } = req.query as { token: string };
     const tokenMetadata = tokens[token as keyof typeof tokens];
+    if (!tokenMetadata) {
+      return res.status(500).json({
+        error: "An error occurred while fetching token metadata",
+      });
+    }
     res.json(tokenMetadata);
   } catch (error) {
     console.log(error);
@@ -206,6 +211,10 @@ app.get("/api/transactions-transfer-history", async (req: Request, res: Response
 });
 
 // Start the server
-app.listen(port, hostname, () => {
-  console.log(`Server is running on http://${hostname}:${port}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(port, hostname, () => {
+    console.log(`Server is running on http://${hostname}:${port}`);
+  });
+}
+
+export default app;
