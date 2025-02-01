@@ -364,7 +364,7 @@ app.get("/api/near-price", async (req: Request, res: Response) => {
       if (price) {
         console.log(`Fetched price from ${endpoint}: $${price}`);
         cache.set(cacheKey, price, 50); // for 50 seconds
-        return res.json({ price, source: endpoint });
+        return res.json(price);
       }
     } catch (error: any) {
       console.error(`Error fetching price from ${endpoint}:`, error.message);
