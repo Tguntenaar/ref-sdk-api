@@ -27,9 +27,7 @@ export async function getAllTokenBalanceHistory(
   const cachedData = cache.get(cacheKey);
 
   if (cachedData) {
-    console.log(
-      ` cached response for key: ${cacheKey}`
-    );
+    console.log(` cached response for key: ${cacheKey}`);
     return cachedData;
   }
 
@@ -51,82 +49,90 @@ export async function getAllTokenBalanceHistory(
     // Fetch balance history for each period
     const allPeriodHistories = await Promise.all(
       periodMap.map(async ({ period, value, interval }) => {
-        const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * value);
+        try {
+          const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * value);
 
-        const blockHeights = Array.from(
-          { length: interval },
-          (_, i) => endBlock - BLOCKS_IN_PERIOD * i
-        ).filter((block) => block > 0);
+          const blockHeights = Array.from(
+            { length: interval },
+            (_, i) => endBlock - BLOCKS_IN_PERIOD * i
+          ).filter((block) => block > 0);
 
-        const blockPromises = blockHeights.map((block_id) =>
-          fetchFromRPC({
-            jsonrpc: "2.0",
-            id: block_id,
-            method: "block",
-            params: { block_id },
-          })
-        );
-
-        const balancePromises = blockHeights.map((block_id) => {
-          if (token_id === "near") {
-            return fetchFromRPC({
+          const blockPromises = blockHeights.map((block_id) =>
+            fetchFromRPC({
               jsonrpc: "2.0",
-              id: 1,
-              method: "query",
-              params: {
-                request_type: "view_account",
-                block_id,
-                account_id,
-              },
-            });
-          } else {
-            return fetchFromRPC({
-              jsonrpc: "2.0",
-              id: "dontcare",
-              method: "query",
-              params: {
-                request_type: "call_function",
-                block_id,
-                account_id: token_id,
-                method_name: "ft_balance_of",
-                args_base64: btoa(JSON.stringify({ account_id })),
-              },
-            });
-          }
-        });
+              id: block_id,
+              method: "block",
+              params: { block_id },
+            })
+          );
 
-        const [blocks, balances] = await Promise.all([
-          Promise.all(blockPromises),
-          Promise.all(balancePromises),
-        ]);
-
-        const balanceHistory = blocks.map((blockData, index) => {
-          const balanceData = balances[index];
-          let balance = "0";
-
-          if (token_id === "near") {
-            balance = balanceData.result?.amount?.toString() || "0";
-          } else {
-            if (balanceData.result) {
-              balance = String.fromCharCode(...balanceData.result.result);
-              balance = balance ? balance.replace(/"/g, "") : "0";
+          const balancePromises = blockHeights.map((block_id) => {
+            if (token_id === "near") {
+              return fetchFromRPC({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "query",
+                params: {
+                  request_type: "view_account",
+                  block_id,
+                  account_id,
+                },
+              });
+            } else {
+              return fetchFromRPC({
+                jsonrpc: "2.0",
+                id: "dontcare",
+                method: "query",
+                params: {
+                  request_type: "call_function",
+                  block_id,
+                  account_id: token_id,
+                  method_name: "ft_balance_of",
+                  args_base64: btoa(JSON.stringify({ account_id })),
+                },
+              });
             }
-          }
+          });
 
-          const timestamp = blockData.result.header.timestamp / 1e6;
+          const [blocks, balances] = await Promise.all([
+            Promise.all(blockPromises),
+            Promise.all(balancePromises),
+          ]);
+
+          const balanceHistory = blocks.map((blockData, index) => {
+            const balanceData = balances[index];
+            let balance = "0";
+
+            if (token_id === "near") {
+              balance = balanceData.result?.amount?.toString() || "0";
+            } else {
+              if (balanceData.result) {
+                balance = String.fromCharCode(...balanceData.result.result);
+                balance = balance ? balance.replace(/"/g, "") : "0";
+              }
+            }
+
+            const timestamp = blockData.result.header.timestamp / 1e6;
+            return {
+              timestamp,
+              date: formatDate(timestamp, value),
+              balance: balance
+                ? convertFTBalance(balance, tokens[token_id as keyof typeof tokens].decimals)
+                : "0",
+            };
+          });
+
           return {
-            timestamp,
-            date: formatDate(timestamp, value),
-            balance: balance
-              ? convertFTBalance(balance, tokens[token_id as keyof typeof tokens].decimals)
-              : "0",
+            period,
+            data: balanceHistory.reverse(),
           };
-        });
-
-        return {
-          period,
-          data: balanceHistory.reverse(),
-        };
+        } catch (error) {
+          console.error(`Error fetching data for period ${period}:`, error);
+          return {
+            period,
+            data: [], // Return empty data for this period instead of failing the entire request
+          };
+        }
       })
     );
 
@@ -134,18 +140,41 @@ export async function getAllTokenBalanceHistory(
       allPeriodHistories.map(({ period, data }) => [period, data])
     );
 
-    await prisma.tokenBalanceHistory.create({
-      data: {
+    // Only save to database if we have some data
+    if (Object.values(respData).some(data => data.length > 0)) {
+      await prisma.tokenBalanceHistory.create({
+        data: {
+          account_id,
+          token_id,
+          balance_history: respData,
+        },
+      });
+      cache.set(cacheKey, respData);
+    }
+
+    return respData;
+  } catch (error) {
+    console.error("Error in getAllTokenBalanceHistory:", error);
+    cache.del(cacheKey);
+    
+    // Try to get the latest data from the database as fallback
+    const dbData = await prisma.tokenBalanceHistory.findFirst({
+      where: {
         account_id,
         token_id,
-        balance_history: respData,
+      },
+      orderBy: {
+        timestamp: 'desc'
       },
     });
 
-    cache.set(cacheKey, respData);
-    return respData;
-  } catch (error) {
-    cache.del(cacheKey);
-    throw error;
+    if (dbData?.balance_history) {
+      return dbData.balance_history;
+    }
+
+    // If no data in database, return empty data structure
+    return Object.fromEntries(
+      periodMap.map(({ period }) => [period, []])
+    );
   }
 }

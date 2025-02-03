@@ -3,7 +3,6 @@ import app from '../src/server';
 import prisma from '../src/prisma';
 import * as whitelistTokens from '../src/whitelist-tokens';
 import * as swap from '../src/swap';
-import * as tokenBalanceHistory from '../src/token-balance-history';
 import * as nearPrice from '../src/near-price';
 import * as ftTokens from '../src/ft-tokens';
 import * as allTokenBalanceHistory from '../src/all-token-balance-history';
@@ -28,7 +27,6 @@ jest.mock('../src/prisma', () => ({
 
 jest.mock('../src/whitelist-tokens');
 jest.mock('../src/swap');
-jest.mock('../src/token-balance-history');
 jest.mock('../src/near-price');
 jest.mock('../src/ft-tokens');
 jest.mock('../src/all-token-balance-history');
@@ -91,36 +89,51 @@ describe('API Endpoints', () => {
 
   describe('GET /api/swap', () => {
     it('should handle swap request', async () => {
-      const mockSwapResult = { estimate: '1000000' };
+      // Mock the searchToken function
+      jest.spyOn(require('../src/utils/search-token'), 'searchToken').mockImplementation(async (...args: unknown[]) => {
+        const token = args[0] as string;
+        if (token === 'wrap.near') {
+          return { id: 'wrap.near', decimals: 24, name: 'Wrapped NEAR' };
+        }
+        if (token === 'usdc.near') {
+          return { id: 'usdc.near', decimals: 6, name: 'USD Coin' };
+        }
+        return null;
+      });
+
+      const mockSwapResult = { 
+        transactions: [{ some: 'transaction' }],
+        outEstimate: '1000000'
+      };
       (swap.getSwap as jest.Mock).mockResolvedValue(mockSwapResult);
 
       const response = await request(app)
         .get('/api/swap')
         .query({
+          accountId: 'test.near',
           tokenIn: 'wrap.near',
           tokenOut: 'usdc.near',
-          amountIn: '1000000000000000000000000'
+          amountIn: '1000000000000000000000000',
+          slippage: '0.01'
         });
       
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockSwapResult);
     });
-  });
 
-  describe('GET /api/token-balance-history', () => {
-    it('should return token balance history', async () => {
-      const mockHistory = { balances: [] };
-      (tokenBalanceHistory.getTokenBalanceHistory as jest.Mock).mockResolvedValue(mockHistory);
-
+    it('should return 400 when required parameters are missing', async () => {
       const response = await request(app)
-        .get('/api/token-balance-history')
+        .get('/api/swap')
         .query({
-          account_id: 'test.near',
-          token_id: 'wrap.near'
+          tokenIn: 'wrap.near',
+          tokenOut: 'usdc.near'
+          // missing accountId and amountIn
         });
       
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual(mockHistory);
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({
+        error: "Missing required parameters. Required: accountId, tokenIn, tokenOut, amountIn"
+      });
     });
   });
 

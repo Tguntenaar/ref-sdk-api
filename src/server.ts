@@ -5,7 +5,6 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { getWhitelistTokens } from "./whitelist-tokens";
 import { getSwap, SwapParams } from "./swap";
-import { getTokenBalanceHistory, TokenBalanceHistoryParams } from "./token-balance-history";
 import { getNearPrice } from "./near-price";
 import { getFTTokens } from "./ft-tokens";
 import { getAllTokenBalanceHistory } from "./all-token-balance-history";
@@ -66,25 +65,31 @@ app.get("/api/whitelist-tokens", async (req: Request, res: Response) => {
 app.get("/api/swap", async (req: Request, res: Response) => {
   try {
     const params = req.query as SwapParams;
+    
+    // Validate required parameters
+    if (!params.accountId || !params.tokenIn || !params.tokenOut || !params.amountIn) {
+      return res.status(400).json({
+        error: "Missing required parameters. Required: accountId, tokenIn, tokenOut, amountIn"
+      });
+    }
+
+    // Set default slippage if not provided
+    if (!params.slippage) {
+      params.slippage = "0.01"; // 1% default slippage
+    }
+
     const result = await getSwap(params);
     return res.json(result);
   } catch (error) {
-    console.log(error);
+    console.error("Error in /api/swap:", error);
+    if (error instanceof Error) {
+      return res.status(500).json({
+        error: error.message
+      });
+    }
     return res.status(500).json({
-      error: "An error occurred while creating swap",
+      error: "An unexpected error occurred while creating swap"
     });
-  }
-});
-
-
-app.get("/api/token-balance-history", async (req: Request, res: Response) => {
-  try {
-    const params = req.query as TokenBalanceHistoryParams;
-    const result = await getTokenBalanceHistory(params, cache);
-    return res.json(result);
-  } catch (error) {
-    console.error("Error fetching balance history:", error);
-    return res.status(500).json({ error: "Failed to fetch balance history" });
   }
 });
 
@@ -137,48 +142,25 @@ app.get("/api/ft-tokens", async (req: Request, res: Response) => {
 
 
 // Add this new endpoint before the server.listen call
-app.get(
-  "/api/all-token-balance-history",
-  async (req: Request, res: Response) => {
-    const { account_id, token_id } = req.query;
+app.get("/api/all-token-balance-history", async (req: Request, res: Response) => {
+  const { account_id, token_id } = req.query;
 
-    if (!account_id || !token_id || typeof account_id !== "string" || typeof token_id !== "string") {
-      return res.status(400).json({ error: "Missing required parameters account_id and token_id" });
+  if (!account_id || !token_id || typeof account_id !== "string" || typeof token_id !== "string") {
+    return res.status(400).json({ error: "Missing required parameters account_id and token_id" });
+  }
+
+  try {
+    const multipleUserKey = `all:${account_id}:${token_id}`;
+    const isCached = cache.get(multipleUserKey);
+    if (isCached) {
+      console.log(`Cache hit for all-token-balance-history for ${account_id} and ${token_id}`);
+      return res.json(isCached);
     }
-
-    try {
-      const multipleUserKey = `all:${account_id}:${token_id}`;
-      const isCached = cache.get(multipleUserKey);
-      if (isCached) {
-        console.log(`Cache hit for all-token-balance-history for ${account_id} and ${token_id}`);
-        return res.json(isCached);
-      }
-    
-      // This happens when it is not cached and the front end is requesting 3x in a second due to BOS
-      const ip = req.ip;
-      const tooManyRequestKey = `all-token-balance-history:${ip}:${account_id}:${token_id}`;
-      if (cache.get(tooManyRequestKey)) {
-        const result = await prisma.tokenBalanceHistory.findFirst({
-          where: {
-            account_id,
-            token_id,
-          },
-          orderBy: {
-            timestamp: 'desc'
-          },
-        });
-        console.log(`439 Returning from cache for ${account_id} and ${token_id}`);
-        return res.status(200).json(result?.balance_history);
-      }
-
-      cache.set(tooManyRequestKey, true, 2);
-      
-      const result = await getAllTokenBalanceHistory(cache, multipleUserKey, account_id, token_id);
-
-      return res.json(result);
-    } catch (error) {
-      console.error("Error fetching all balance history:", error);
-
+  
+    // This happens when it is not cached and the front end is requesting 3x in a second due to BOS limitations with config
+    const ip = req.ip;
+    const tooManyRequestKey = `all-token-balance-history:${ip}:${account_id}:${token_id}`;
+    if (cache.get(tooManyRequestKey)) {
       const result = await prisma.tokenBalanceHistory.findFirst({
         where: {
           account_id,
@@ -188,11 +170,31 @@ app.get(
           timestamp: 'desc'
         },
       });
-
+      console.log(`439 Returning from cache for ${account_id} and ${token_id}`);
       return res.status(200).json(result?.balance_history);
     }
+
+    cache.set(tooManyRequestKey, true, 2);
+    
+    const result = await getAllTokenBalanceHistory(cache, multipleUserKey, account_id, token_id);
+
+    return res.json(result);
+  } catch (error) {
+    console.error("Error fetching all balance history:", error);
+
+    const result = await prisma.tokenBalanceHistory.findFirst({
+      where: {
+        account_id,
+        token_id,
+      },
+      orderBy: {
+        timestamp: 'desc'
+      },
+    });
+
+    return res.status(200).json(result?.balance_history);
   }
-);
+});
 
 app.get("/api/transactions-transfer-history", async (req: Request, res: Response) => {
   try {
