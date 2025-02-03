@@ -42,8 +42,8 @@ export async function getNearPrice(cache: NearPriceCache) {
             source: endpoint
           }
         })
-        cache.set(cacheKey, { price, source: endpoint }, 50); // for 50 seconds
-        return { price, source: endpoint };
+        cache.set(cacheKey, price, 50); // for 50 seconds
+        return price;
       }
     } catch (error: any) {
       console.error(`Error fetching price from ${endpoint}:`, error.message);
