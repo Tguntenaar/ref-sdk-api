@@ -126,34 +126,26 @@ describe('API Endpoints', () => {
 
   describe('GET /api/near-price', () => {
     it('should return NEAR price', async () => {
-      const timestamp = new Date();
-      const mockPrice = { price: '1.5', timestamp: timestamp };
+      const mockPrice = 1.5;
       (nearPrice.getNearPrice as jest.Mock).mockResolvedValue(mockPrice);
 
       const response = await request(app)
         .get('/api/near-price');
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
-        price: mockPrice.price,
-        timestamp: timestamp.toISOString()
-      });
+      expect(response.body).toBe(mockPrice);
     });
 
     it('should fallback to database on error', async () => {
-      const timestamp = new Date();
-      const mockPrice = { price: '1.5', timestamp: timestamp };
+      const mockDbPrice = { price: 1.5, timestamp: new Date(), source: 'test' };
       (nearPrice.getNearPrice as jest.Mock).mockRejectedValue(new Error('API Error'));
-      (prisma.nearPrice.findFirst as jest.Mock).mockResolvedValue(mockPrice);
+      (prisma.nearPrice.findFirst as jest.Mock).mockResolvedValue(mockDbPrice);
 
       const response = await request(app)
         .get('/api/near-price');
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
-        price: mockPrice.price,
-        timestamp: timestamp.toISOString()
-      });
+      expect(response.body).toBe(mockDbPrice.price);
     });
   });
 

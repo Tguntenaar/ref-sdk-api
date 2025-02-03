@@ -6,7 +6,7 @@ type NearPriceCache = {
   set: (key: string, value: any, ttl: number) => void;
 };
 
-export async function getNearPrice(cache: NearPriceCache) {
+export async function getNearPrice(cache: NearPriceCache): Promise<number | null> {
   const cacheKey = `near-price`;
   const cachedData = cache.get(cacheKey);
 
