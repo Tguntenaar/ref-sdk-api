@@ -11,6 +11,8 @@ import { getAllTokenBalanceHistory } from "./all-token-balance-history";
 import { getTransactionsTransferHistory, TransferHistoryParams } from "./transactions-transfer-history";
 import prisma from "./prisma";
 import { tokens } from "./constants/tokens";
+import { getSingleTokenBalanceHistory } from "./single-token-balance-history";
+import { periodMap } from "./constants/period-map";
 dotenv.config();
 
 const app = express();
@@ -210,6 +212,74 @@ app.get("/api/all-token-balance-history", async (req: Request, res: Response) =>
       return acc;
     }, {});
     return res.status(200).json(resultJson);
+  }
+});
+
+app.get("/api/single-token-balance-history", async (req: Request, res: Response) => {
+  const { account_id, token_id, period, disableCache } = req.query;
+
+  if (!account_id || !token_id || !period || typeof account_id !== "string" || typeof token_id !== "string" || typeof period !== "string") {
+    return res.status(400).json({ error: "Missing required parameters account_id, token_id, and period" });
+  }
+
+  // Find the requested period in the periodMap
+  const periodConfig = periodMap.find(p => p.period === period);
+  if (!periodConfig) {
+  return res.status(400).json({ error: `Invalid period: ${period}. Valid periods are: ${periodMap.map(p => p.period).join(', ')}` });
+  }
+
+  try {
+    const singlePeriodKey = `single:${account_id}:${token_id}:${period}`;
+    const isCached = cache.get(singlePeriodKey);
+    if (isCached && !disableCache) {
+      console.log(`Cache hit for single-token-balance-history for ${account_id}, ${token_id}, and period ${period}`);
+      return res.json(isCached);
+    }
+  
+    // Handle too many requests similar to all-token-balance-history
+    const ip = req.ip;
+    const tooManyRequestKey = `single-token-balance-history:${ip}:${account_id}:${token_id}:${period}`;
+    if (cache.get(tooManyRequestKey)) {
+      const result = await prisma.tokenBalanceHistory.findFirst({
+        where: {
+          account_id,
+          token_id,
+          period
+        },
+        orderBy: {
+          timestamp: 'desc'
+        }
+      });
+      console.log(`Returning from cache for ${account_id}, ${token_id}, and period ${period}`);
+      if (result) {
+        return res.status(200).json({ [period]: result.balance_history });
+      }
+      return res.status(404).json({ error: "No data found for the specified period" });
+    }
+
+    cache.set(tooManyRequestKey, true, 2);
+    
+    const result = await getSingleTokenBalanceHistory(cache, singlePeriodKey, account_id, token_id, periodConfig);
+
+    return res.json(result);
+  } catch (error) {
+    console.error("Error fetching single period balance history:", error);
+
+    const result = await prisma.tokenBalanceHistory.findFirst({
+      where: {
+        account_id,
+        token_id,
+        period
+      },
+      orderBy: {
+        timestamp: 'desc'
+      }
+    });
+
+    if (result) {
+      return res.status(200).json({ [period]: result.balance_history });
+    }
+    return res.status(404).json({ error: "No data found for the specified period" });
   }
 });
 
