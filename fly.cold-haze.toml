@@ -3,7 +3,7 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'ref-sdk-api-cold-haze-1300'
+app = 'ref-sdk-test-cold-haze-1300'
 primary_region = 'dfw'
 
 [build]
@@ -17,9 +17,10 @@ min_machines_running = 1
 processes = ['app']
 
 [[vm]]
-memory = '1gb'
+memory = '2gb'
+swap_size_mb = 512
 cpu_kind = 'shared'
-cpus = 1
+cpus = 2
 
 [deploy]
 release_command = 'npx prisma migrate deploy'

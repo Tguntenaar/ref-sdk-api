@@ -21,6 +21,12 @@ const port = Number(process.env.PORT || 3000);
 const apiLimiter = rateLimit({
   windowMs: 30 * 1000,
   max: 180,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Use forwarded IP if available, otherwise use the direct IP
+    return req.ip || req.connection.remoteAddress || 'unknown';
+  }
 });
 
 app.use(cors());
@@ -29,7 +35,7 @@ app.use(express.json());
 app.use("/api/", apiLimiter);
 
 const NodeCache = require("node-cache");
-const cache = new NodeCache({ stdTTL: 600, checkperiod: 120 }); // Cache for 10 min
+const cache = new NodeCache({ stdTTL: 30, checkperiod: 30 }); // Cache for 30 sec
 
 app.get("/api/token-metadata", async (req: Request, res: Response) => {
   try {
@@ -143,7 +149,7 @@ app.get("/api/ft-tokens", async (req: Request, res: Response) => {
 
 // Add this new endpoint before the server.listen call
 app.get("/api/all-token-balance-history", async (req: Request, res: Response) => {
-  const { account_id, token_id } = req.query;
+  const { account_id, token_id, disableCache } = req.query;
 
   if (!account_id || !token_id || typeof account_id !== "string" || typeof token_id !== "string") {
     return res.status(400).json({ error: "Missing required parameters account_id and token_id" });
@@ -152,7 +158,7 @@ app.get("/api/all-token-balance-history", async (req: Request, res: Response) =>
   try {
     const multipleUserKey = `all:${account_id}:${token_id}`;
     const isCached = cache.get(multipleUserKey);
-    if (isCached) {
+    if (isCached && !disableCache) {
       console.log(`Cache hit for all-token-balance-history for ${account_id} and ${token_id}`);
       return res.json(isCached);
     }
@@ -161,7 +167,7 @@ app.get("/api/all-token-balance-history", async (req: Request, res: Response) =>
     const ip = req.ip;
     const tooManyRequestKey = `all-token-balance-history:${ip}:${account_id}:${token_id}`;
     if (cache.get(tooManyRequestKey)) {
-      const result = await prisma.tokenBalanceHistory.findFirst({
+      const result = await prisma.tokenBalanceHistory.findMany({
         where: {
           account_id,
           token_id,
@@ -169,9 +175,14 @@ app.get("/api/all-token-balance-history", async (req: Request, res: Response) =>
         orderBy: {
           timestamp: 'desc'
         },
+        distinct: ['period']
       });
-      console.log(`439 Returning from cache for ${account_id} and ${token_id}`);
-      return res.status(200).json(result?.balance_history);
+      console.log(`439 Returning from cache for ${account_id} and ${token_id} and ${result.length} periods`);
+      const resultJson = result.reduce((acc: Record<string, any>, item) => {
+        acc[item.period] = item.balance_history;
+        return acc;
+      }, {});
+      return res.status(200).json(resultJson);
     }
 
     cache.set(tooManyRequestKey, true, 2);
@@ -182,7 +193,7 @@ app.get("/api/all-token-balance-history", async (req: Request, res: Response) =>
   } catch (error) {
     console.error("Error fetching all balance history:", error);
 
-    const result = await prisma.tokenBalanceHistory.findFirst({
+    const result = await prisma.tokenBalanceHistory.findMany({
       where: {
         account_id,
         token_id,
@@ -190,10 +201,22 @@ app.get("/api/all-token-balance-history", async (req: Request, res: Response) =>
       orderBy: {
         timestamp: 'desc'
       },
+      distinct: ['period']
     });
 
-    return res.status(200).json(result?.balance_history);
+
+    const resultJson = result.reduce((acc: Record<string, any>, item) => {
+      acc[item.period] = item.balance_history;
+      return acc;
+    }, {});
+    return res.status(200).json(resultJson);
   }
+});
+
+// Create a endpoint that removes all TokenBalanceHistory from the database
+app.delete("/api/clear-token-balance-history", async (req: Request, res: Response) => {
+  await prisma.tokenBalanceHistory.deleteMany();
+  return res.status(200).json({ message: "All TokenBalanceHistory removed from the database" });
 });
 
 app.get("/api/transactions-transfer-history", async (req: Request, res: Response) => {

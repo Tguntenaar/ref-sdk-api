@@ -1,4 +1,4 @@
-import { fetchFromRPC } from "./utils/fetch-with-retry";
+import { fetchFromRPC } from "./utils/fetch-from-rpc";
 import { formatDate } from "./utils/format-date";
 import { convertFTBalance } from "./utils/convert-ft-balance";
 import prisma from "./prisma";
@@ -24,6 +24,8 @@ export async function getAllTokenBalanceHistory(
   account_id: string,
   token_id: string,
 ) {
+  let rpcCallCount = 0; // Initialize counter
+  
   const cachedData = cache.get(cacheKey);
 
   if (cachedData) {
@@ -38,6 +40,7 @@ export async function getAllTokenBalanceHistory(
       method: "block",
       params: { finality: "final" },
     }, true);
+    rpcCallCount++; // Increment counter
 
     if (!blockData.result) {
       throw new Error("Failed to fetch latest block");
@@ -57,16 +60,18 @@ export async function getAllTokenBalanceHistory(
             (_, i) => endBlock - BLOCKS_IN_PERIOD * i
           ).filter((block) => block > 0);
 
-          const blockPromises = blockHeights.map((block_id) =>
-            fetchFromRPC({
+          const blockPromises = blockHeights.map((block_id) => {
+            rpcCallCount++; // Increment counter for each block request
+            return fetchFromRPC({
               jsonrpc: "2.0",
               id: block_id,
               method: "block",
               params: { block_id },
-            })
-          );
+            });
+          });
 
           const balancePromises = blockHeights.map((block_id) => {
+            rpcCallCount++; // Increment counter for each balance request
             if (token_id === "near") {
               return fetchFromRPC({
                 jsonrpc: "2.0",
@@ -112,7 +117,10 @@ export async function getAllTokenBalanceHistory(
               }
             }
 
-            const timestamp = blockData.result.header.timestamp / 1e6;
+            const timestamp = blockData?.result?.header?.timestamp 
+              ? blockData.result.header.timestamp / 1e6 
+              : Date.now(); // Fallback to current timestamp if header is undefined due to rpc error
+              
             return {
               timestamp,
               date: formatDate(timestamp, value),
@@ -140,18 +148,21 @@ export async function getAllTokenBalanceHistory(
       allPeriodHistories.map(({ period, data }) => [period, data])
     );
 
-    // Only save to database if we have some data
-    if (Object.values(respData).some(data => data.length > 0)) {
-      await prisma.tokenBalanceHistory.create({
-        data: {
-          account_id,
-          token_id,
-          balance_history: respData,
-        },
-      });
+    // Store in database for every data value that is not empty
+    allPeriodHistories.forEach(async ({ period, data }) => {
+      if (data.length > 0) {
+        await prisma.tokenBalanceHistory.create({
+          data: { account_id, token_id, period, balance_history: data },
+        });
+      }
+    });
+
+    // Only save to cache if we have all data
+    if (Object.values(respData).every(data => data.length > 0)) {
       cache.set(cacheKey, respData);
     }
 
+    console.log(`Total RPC calls made: ${rpcCallCount}`); // Log the total count
     return respData;
   } catch (error) {
     console.error("Error in getAllTokenBalanceHistory:", error);

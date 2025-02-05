@@ -17,8 +17,22 @@ model TokenBalanceHistory {
   id              String   @id @default(uuid())
   account_id      String
   token_id        String
+  period          String   @default("1Y")
   balance_history Json
   timestamp       DateTime @default(now())
+
+  @@index([account_id, token_id, period, timestamp])
+}
+
+model RpcRequest {
+  id           String   @id @default(uuid())
+  requestHash  String
+  endpoint     String
+  requestBody  Json
+  responseBody Json
+  timestamp    DateTime @default(now())
+
+  @@index([timestamp])
 }
 
 model FTToken {
@@ -34,4 +48,15 @@ model NearPrice {
   price     Float
   source    String
   timestamp DateTime @default(now())
+}
+
+model AccountBlockExistence {
+  id          Int      @id @default(autoincrement())
+  accountId   String
+  blockHeight Int
+  exists      Boolean
+  timestamp   DateTime @default(now())
+
+  @@unique([accountId, blockHeight])
+  @@index([accountId, blockHeight])
 }
