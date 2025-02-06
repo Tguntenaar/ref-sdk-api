@@ -1,15 +1,22 @@
 import axios from "axios";
-import NodeCache from "node-cache";
 import crypto from "crypto";
 import prisma from "../prisma";
+
+
 const RPC_ENDPOINTS = [
+  "https://rpc.mainnet.near.org",
+  "https://free.rpc.fastnear.com",
+  "https://near.lava.build",
+];
+
+const ARCHIVAL_RPC_ENDPOINTS = [
   "https://archival-rpc.mainnet.near.org",
   "https://archival-rpc.mainnet.pagoda.co",
   "https://archival-rpc.mainnet.fastnear.com",
-  // Add more RPC endpoints here as needed
+  "https://rpc.mainnet.near.org", // Try if this RPC endpoint has it.
 ];
 
-export async function fetchFromRPC(body: any, disableCache: boolean = false): Promise<any> {
+export async function fetchFromRPC(body: any, disableCache: boolean = false, archival: boolean = false): Promise<any> {
   const requestHash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex')
   
   // Extract account ID and block height from the request body if present
@@ -41,23 +48,29 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false): Pr
     }
   }
 
-  const existingRequest = await prisma.rpcRequest.findFirst({
-    where: {
-      requestHash,
+  if (!disableCache) {
+    const existingRequest = await prisma.rpcRequest.findFirst({
+      where: {
+        requestHash,
     },
     orderBy: {
       timestamp: 'desc'
     }
   });
 
-  if (existingRequest && !disableCache) {
-    return existingRequest.responseBody;
+    if (existingRequest) {
+      console.log(`Found cached RPC request for ${requestHash}`);
+      return existingRequest.responseBody;
+    }
+  }
+  
+  let usable_endpoints = RPC_ENDPOINTS;
+  if (archival) {
+    usable_endpoints = ARCHIVAL_RPC_ENDPOINTS;
   }
 
-  let lastError: Error | null = null;
-
   // Try each RPC endpoint in sequence
-  for (const endpoint of RPC_ENDPOINTS) {
+  for (const endpoint of usable_endpoints) {
     try {
       const response = await axios.post(endpoint, body, {
         headers: { "Content-Type": "application/json" },
@@ -108,7 +121,6 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false): Pr
           console.error(`RPC request failed for ${endpoint}:`, error);
         }
       }
-      lastError = error as Error;
     }
   }
 

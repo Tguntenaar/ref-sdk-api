@@ -4,7 +4,7 @@ import { convertFTBalance } from "./utils/convert-ft-balance";
 import prisma from "./prisma";
 import { tokens } from "./constants/tokens";
 import { periodMap } from "./constants/period-map";
-import { interpolateValues } from "./utils/interpolate-values";
+import { interpolateTimestampsToTenMinutes } from "./utils/interpolate-values";
 
 type SingleTokenBalanceHistoryCache = {
   get: (key: string) => any;
@@ -61,7 +61,7 @@ export async function getSingleTokenBalanceHistory(
     });
     console.log(`First block data: ${JSON.stringify(firstBlockDataForPeriod)}`);
     
-    const blockTimestamps = interpolateValues(
+    const blockTimestamps = interpolateTimestampsToTenMinutes(
       firstBlockDataForPeriod.result.header.timestamp / 1e6,
       blockData.result.header.timestamp / 1e6, 
       interval);
@@ -101,22 +101,40 @@ export async function getSingleTokenBalanceHistory(
       const balanceData = balances[index];
       let balance = "0";
 
-      if (token_id === "near") {
-        balance = balanceData.result?.amount?.toString() || "0";
-      } else {
-        if (balanceData.result) {
-          balance = String.fromCharCode(...balanceData.result.result);
-          balance = balance ? balance.replace(/"/g, "") : "0";
+      try {
+        if (!balanceData || !balanceData.result) {
+          console.warn(`No balance data for block at index ${index}`);
+          return {
+            timestamp,
+            date: formatDate(timestamp, value),
+            balance: "0",
+          };
         }
-      }
 
-      return {
-        timestamp,
-        date: formatDate(timestamp, value),
-        balance: balance
-          ? convertFTBalance(balance, tokens[token_id as keyof typeof tokens].decimals)
-          : "0",
-      };
+        if (token_id === "near") {
+          balance = balanceData.result?.amount?.toString() || "0";
+        } else {
+          if (balanceData.result.result) {
+            balance = String.fromCharCode(...balanceData.result.result);
+            balance = balance ? balance.replace(/"/g, "") : "0";
+          }
+        }
+
+        return {
+          timestamp,
+          date: formatDate(timestamp, value),
+          balance: balance
+            ? convertFTBalance(balance, tokens[token_id as keyof typeof tokens].decimals)
+            : "0",
+        };
+      } catch (error) {
+        console.warn(`Error processing balance at index ${index}:`, error);
+        return {
+          timestamp,
+          date: formatDate(timestamp, value),
+          balance: "0",
+        };
+      }
     });
 
     const respData = {

@@ -3,7 +3,7 @@ import { formatDate } from "./utils/format-date";
 import { convertFTBalance } from "./utils/convert-ft-balance";
 import prisma from "./prisma";
 import {tokens} from "./constants/tokens";
-import { interpolateValues } from "./utils/interpolate-values";
+import { interpolateTimestampsToTenMinutes } from "./utils/interpolate-values";
 import { periodMap } from "./constants/period-map";
 
 type AllTokenBalanceHistoryCache = {
@@ -11,6 +11,7 @@ type AllTokenBalanceHistoryCache = {
   set: (key: string, value: any, ttl?: number) => void;
   del: (key: string) => void;
 };
+
 
 export async function getAllTokenBalanceHistory(
   cache: AllTokenBalanceHistoryCache,
@@ -33,7 +34,7 @@ export async function getAllTokenBalanceHistory(
       id: 1,
       method: "block",
       params: { finality: "final" },
-    }, true);
+    }, true, false);
     rpcCallCount++; // Increment counter
 
     if (!blockData.result) {
@@ -48,8 +49,10 @@ export async function getAllTokenBalanceHistory(
 
     // Fetch balance history for each period
     const allPeriodHistories = await Promise.all(
-      shuffledPeriodMap.map(async ({ period, value, interval }) => {
+      shuffledPeriodMap.map(async (periodConfig) => {
+        const { period, value, interval } = periodConfig;
         try {
+          const useArchival = period === "1Y" || period === "1M" || period === "1W" || period === "All";
           const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * value);
 
           const blockHeights = Array.from(
@@ -64,13 +67,14 @@ export async function getAllTokenBalanceHistory(
             id: firstBlock,
             method: "block",
             params: { block_id: firstBlock},
-          });
-          console.log(`First block data: ${JSON.stringify(firstBlockDataForPeriod)}`);
+          }, false, useArchival);
+          // console.log(`First block data: ${JSON.stringify(firstBlockDataForPeriod)}`);
           
-          const blockTimestamps = interpolateValues(
+          const blockTimestamps = interpolateTimestampsToTenMinutes(
             firstBlockDataForPeriod.result.header.timestamp / 1e6,
             blockData.result.header.timestamp / 1e6, 
-            interval);
+            interval
+            );
 
           const balancePromises = blockHeights.map((block_id) => {
             rpcCallCount++; // Increment counter for each balance request
@@ -84,7 +88,7 @@ export async function getAllTokenBalanceHistory(
                   block_id,
                   account_id,
                 },
-              });
+              }, false, useArchival);
             } else {
               return fetchFromRPC({
                 jsonrpc: "2.0",
@@ -97,7 +101,7 @@ export async function getAllTokenBalanceHistory(
                   method_name: "ft_balance_of",
                   args_base64: btoa(JSON.stringify({ account_id })),
                 },
-              });
+              }, false, useArchival);
             }
           });
 
@@ -146,6 +150,7 @@ export async function getAllTokenBalanceHistory(
     // Store in database for every data value that is not empty
     allPeriodHistories.forEach(async ({ period, data }) => {
       if (data.length > 0) {
+        console.log(`Saving to database for ${account_id} and ${token_id} and ${period}`);
         await prisma.tokenBalanceHistory.create({
           data: { account_id, token_id, period, balance_history: data },
         });
@@ -161,27 +166,32 @@ export async function getAllTokenBalanceHistory(
     console.log(`Total RPC calls made: ${rpcCallCount}`); // Log the total count
     return respData;
   } catch (error) {
-    console.error("Error in getAllTokenBalanceHistory:", error);
-    cache.del(cacheKey);
-    
-    // Try to get the latest data from the database as fallback
-    const dbData = await prisma.tokenBalanceHistory.findFirst({
-      where: {
-        account_id,
-        token_id,
-      },
-      orderBy: {
-        timestamp: 'desc'
-      },
-    });
+    try {
+      console.error("Error in getAllTokenBalanceHistory:", error);
+      cache.del(cacheKey);
+      
+      const result = await prisma.tokenBalanceHistory.findMany({
+        where: {
+          account_id,
+          token_id,
+        },
+        orderBy: {
+          timestamp: 'desc'
+        },
+        distinct: ['period']
+      });
+      console.log(`439 Returning from cache for ${account_id} and ${token_id} and ${result.length} periods`);
+      const resultJson = result.reduce((acc: Record<string, any>, item) => {
+        acc[item.period] = item.balance_history;
+        return acc;
+      }, {});
 
-    if (dbData?.balance_history) {
-      return dbData.balance_history;
+      return resultJson;
+    } catch (error) {
+      console.log(`Error in fallback getAllTokenBalanceHistory: ${error}`);
+      return Object.fromEntries(
+        periodMap.map(({ period }) => [period, []])
+      );
     }
-
-    // If no data in database, return empty data structure
-    return Object.fromEntries(
-      periodMap.map(({ period }) => [period, []])
-    );
   }
 }
