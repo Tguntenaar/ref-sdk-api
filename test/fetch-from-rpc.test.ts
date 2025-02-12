@@ -28,6 +28,10 @@ describe("fetchFromRPC", () => {
     (mockedPrisma.accountBlockExistence.findFirst as jest.Mock).mockResolvedValue(null);
   });
 
+  beforeAll(() => {
+    process.env.FASTNEAR_API_KEY = "dummy-key";
+  });
+
   test("returns result from first successful RPC call and caches the result", async () => {
     const body = { test: "cacheTest" };
     const successResponse = { result: "cachedData" };
