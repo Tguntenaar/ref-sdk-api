@@ -72,7 +72,7 @@ describe("fetchFromRPC", () => {
 
     const result = await fetchFromRPC(body);
     expect(result).toBe(0);
-    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(4);
   });
 
   test("handles responses with an error property and retries", async () => {

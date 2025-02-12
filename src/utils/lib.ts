@@ -218,6 +218,9 @@ export const unWrapNear = async ({ amountIn }: { amountIn: string }) => {
 
 export async function fetchPikespeakEndpoint(endpoint: string) {
   try {
+    if (!process.env.PIKESPEAK_KEY) {
+      throw new Error("PIKESPEAK_KEY is not set");
+    }
     const options = {
       method: "GET",
       headers: {

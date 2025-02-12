@@ -5,6 +5,11 @@ import { tokens } from "./constants/tokens";
 
 export async function getWhitelistTokens(account?: string | string[]) {
   // Fetch prices and balances concurrently
+
+  if (!process.env.PIKESPEAK_KEY) {
+    throw new Error("PIKESPEAK_KEY is not set");
+  }
+
   const fetchBalancesPromise = account
     ? axios.get(`https://api.pikespeak.ai/account/balance/${account}`, {
         headers: {

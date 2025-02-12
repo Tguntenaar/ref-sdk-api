@@ -6,6 +6,7 @@ import prisma from "../prisma";
 const RPC_ENDPOINTS = [
   "https://rpc.mainnet.near.org",
   "https://free.rpc.fastnear.com",
+  "https://rpc.mainnet.fastnear.com/",
   "https://near.lava.build",
 ];
 
@@ -13,7 +14,7 @@ const ARCHIVAL_RPC_ENDPOINTS = [
   "https://archival-rpc.mainnet.near.org",
   "https://archival-rpc.mainnet.pagoda.co",
   "https://archival-rpc.mainnet.fastnear.com",
-  "https://rpc.mainnet.near.org", // Try if this RPC endpoint has it.
+  "https://rpc.mainnet.near.org",
 ];
 
 export async function fetchFromRPC(body: any, disableCache: boolean = false, archival: boolean = false): Promise<any> {
@@ -30,7 +31,7 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
 
   // Check if we already know this account didn't exist at this block height
   if (accountId && blockHeight) {
-    const accountExistence = await prisma.accountBlockExistence.findFirst({
+    const accountExistenceIsFalse = await prisma.accountBlockExistence.findFirst({
       where: {
         accountId,
         blockHeight: {
@@ -43,7 +44,10 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
       }
     });
 
-    if (accountExistence) {
+    console.log(`accountExistenceIsFalse: ${accountExistenceIsFalse}`);
+
+    if (accountExistenceIsFalse) {
+      // TODO don't make the RPC call here. Return 0
       throw new Error(`Account ${accountId} did not exist at or before block ${blockHeight}`);
     }
   }
@@ -72,8 +76,20 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
   // Try each RPC endpoint in sequence
   for (const endpoint of usable_endpoints) {
     try {
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      }
+
+      if (endpoint.includes("rpc.mainnet.fastnear.com")) {
+        if (!process.env.FASTNEAR_API_KEY) {
+          throw new Error("FASTNEAR_API_KEY is not set");
+        }
+        headers["Authorization"] = `Bearer ${process.env.FASTNEAR_API_KEY}`;
+      }
+
       const response = await axios.post(endpoint, body, {
-        headers: { "Content-Type": "application/json" },
+        headers,
       });
 
       // Axios automatically throws on non-2xx responses and parses JSON

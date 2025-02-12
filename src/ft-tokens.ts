@@ -20,11 +20,15 @@ export async function getFTTokens(account_id: string, cache: FTCache) {
     return cachedData;
   }
 
+  if (!process.env.NEARBLOCKS_API_KEY) {
+    throw new Error("NEARBLOCKS_API_KEY is not set");
+  }
+
   const { data } = await axios.get(
     `https://api3.nearblocks.io/v1/account/${account_id}/inventory`,
     {
       headers: {
-        Authorization: `Bearer ${process.env.REPL_NEARBLOCKS_KEY}`,
+        Authorization: `Bearer ${process.env.NEARBLOCKS_API_KEY}`,
       },
     }
   );

@@ -19,12 +19,15 @@ export async function getAllTokenBalanceHistory(
   account_id: string,
   token_id: string,
 ) {
-  let rpcCallCount = 0; // Initialize counter
+  let rpcCallCount = 0;
+
+  // FIXME: we should know when the account was created + when the token was first introduced to this account
+  // That way we don't double query data that we already know.
+  // Near token has a constraint of having a minimum balance of 6.
   
   const cachedData = cache.get(cacheKey);
-
   if (cachedData) {
-    console.log(` cached response for key: ${cacheKey}`);
+    console.log(`Cached response for key: ${cacheKey}`);
     return cachedData;
   }
 
@@ -35,7 +38,7 @@ export async function getAllTokenBalanceHistory(
       method: "block",
       params: { finality: "final" },
     }, true, false);
-    rpcCallCount++; // Increment counter
+    rpcCallCount++;
 
     if (!blockData.result) {
       throw new Error("Failed to fetch latest block");
@@ -44,6 +47,7 @@ export async function getAllTokenBalanceHistory(
     const endBlock = blockData.result.header.height;
     const BLOCKS_IN_ONE_HOUR = 3200;
 
+    // FIXME: This is a hack to get all the data since the last graph will most likely run into rate limits.
     // Shuffle the periodMap but keep "1Y" at index 0
     const shuffledPeriodMap = [periodMap[0], ...periodMap.slice(1).sort(() => Math.random() - 0.5)];
 
@@ -56,7 +60,9 @@ export async function getAllTokenBalanceHistory(
           const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * value);
 
           const blockHeights = Array.from(
-            { length: interval },
+            // FIXME: we call the RPC for each interval. Maybe we can reduce the RPC 
+            // calls here as well? We only need to know when the balance changed.
+            { length: interval }, 
             (_, i) => endBlock - BLOCKS_IN_PERIOD * i
           ).filter((block) => block > 0);
 
@@ -68,8 +74,11 @@ export async function getAllTokenBalanceHistory(
             method: "block",
             params: { block_id: firstBlock},
           }, false, useArchival);
-          // console.log(`First block data: ${JSON.stringify(firstBlockDataForPeriod)}`);
+          rpcCallCount++;
           
+          // FIXME: we interpolate the timestamps into 10 minute buckets to not 
+          // have to request the timestamp for each block from the RPC reducing 
+          // the RPC call with: (the amount of blocks || intervals) - 1
           const blockTimestamps = interpolateTimestampsToTenMinutes(
             firstBlockDataForPeriod.result.header.timestamp / 1e6,
             blockData.result.header.timestamp / 1e6, 
