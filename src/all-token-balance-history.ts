@@ -31,6 +31,38 @@ export async function getAllTokenBalanceHistory(
     return cachedData;
   }
 
+  const token = tokens[token_id as keyof typeof tokens];
+  let decimals = token?.decimals || 24;
+
+  try {
+    if (!token?.decimals) {
+      console.log(`Fetching token details for ${token_id}`);
+      const tokenDetails = await fetchFromRPC({
+        jsonrpc: "2.0",
+        id: "dontcare",
+        method: "query",
+        params: {
+          request_type: "call_function",
+          account_id: token_id,
+          "finality": "final",
+          method_name: "ft_metadata",
+          args_base64: btoa(JSON.stringify({})),
+        },
+      }, false, false);
+
+      const decodedResult = tokenDetails.result.result
+        .map((c: number) => String.fromCharCode(c))
+        .join("");
+
+      const decodedResultObject = JSON.parse(decodedResult);
+      decimals = parseInt(decodedResultObject.decimals, 10);
+
+      console.log(`Decimals: ${decimals}`);
+    }    
+  } catch (error) {
+    console.log(`Error fetching token details for ${token_id}: ${error}`);
+  }
+
   try {
     const blockData = await fetchFromRPC({
       jsonrpc: "2.0",
@@ -128,12 +160,12 @@ export async function getAllTokenBalanceHistory(
               balance = String.fromCharCode(...balanceData.result.result);
               balance = balance ? balance.replace(/"/g, "") : balanceMinimum;
             }
-            
+
             return {
               timestamp,
               date: formatDate(timestamp, value),
               balance: balance
-                ? convertFTBalance(balance, tokens[token_id as keyof typeof tokens].decimals)
+                ? convertFTBalance(balance, decimals)
                 : balanceMinimum,
             };
           });

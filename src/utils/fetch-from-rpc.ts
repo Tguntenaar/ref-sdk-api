@@ -6,19 +6,19 @@ import NodeCache from "node-cache";
 
 const RPC_ENDPOINTS = [
   "https://rpc.mainnet.fastnear.com/",
-  "https://rpc.mainnet.near.org",
-  "https://free.rpc.fastnear.com",
-  "https://near.lava.build",
+  // "https://rpc.mainnet.near.org",
+  // "https://free.rpc.fastnear.com",
+  // "https://near.lava.build",
 ];
 
 const ARCHIVAL_RPC_ENDPOINTS = [
-  "https://archival-rpc.mainnet.near.org",
-  "https://archival-rpc.mainnet.pagoda.co",
   "https://archival-rpc.mainnet.fastnear.com",
-  "https://rpc.mainnet.near.org",
+  // "https://archival-rpc.mainnet.near.org",
+  // "https://archival-rpc.mainnet.pagoda.co",
+  // "https://rpc.mainnet.near.org",
 ];
 
-const CACHE_EXPIRATION = 1000 * 10; // 10 seconds
+const CACHE_EXPIRATION = 10; // 10 seconds
 const cache = new NodeCache({
   stdTTL: CACHE_EXPIRATION,
   checkperiod: CACHE_EXPIRATION / 2,
@@ -26,7 +26,7 @@ const cache = new NodeCache({
 
 export async function fetchFromRPC(body: any, disableCache: boolean = false, archival: boolean = false): Promise<any> {
   const requestHash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex')
-  
+
   // Extract account ID and block height from the request body if present
   let accountId: string | undefined;
   let blockHeight: number | undefined;
@@ -144,6 +144,8 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
               exists: false
             }
           });
+  
+          return 0;
         }
 
         if (error.response?.status === 429) {
