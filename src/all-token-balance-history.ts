@@ -18,7 +18,7 @@ export async function getAllTokenBalanceHistory(
   cacheKey: string,
   account_id: string,
   token_id: string,
-) {
+) : Promise<Record<string, { timestamp: number, date: string, balance: string }[]>> {
   let rpcCallCount = 0;
 
   // FIXME: we should know when the account was created + when the token was first introduced to this account
@@ -82,12 +82,13 @@ export async function getAllTokenBalanceHistory(
           const blockTimestamps = interpolateTimestampsToTenMinutes(
             firstBlockDataForPeriod.result.header.timestamp / 1e6,
             blockData.result.header.timestamp / 1e6, 
-            interval
-            );
+            blockHeights.length
+          ).reverse();
 
-          const balancePromises = blockHeights.map((block_id) => {
+          const balances = await Promise.all(blockHeights.map(async (block_id) => {
             rpcCallCount++; // Increment counter for each balance request
             if (token_id === "near") {
+              console.log(`Viewing account for ${account_id} at block ${block_id} ${useArchival ? "using archival RPC" : "using non-archival RPC"}`);
               return fetchFromRPC({
                 jsonrpc: "2.0",
                 id: 1,
@@ -112,35 +113,35 @@ export async function getAllTokenBalanceHistory(
                 },
               }, false, useArchival);
             }
-          });
-
-          const balances = await Promise.all(balancePromises);
+          }));
 
           const balanceHistory = blockTimestamps.map((timestamp, index) => {
             const balanceData = balances[index];
-            let balance = "0";
+           
+            // FIXME: This is a hack to handle the fact that the DAO contract can't have a balance of 0.
+            const balanceMinimum = token_id === "near" ? "6" : "0";
+            let balance = balanceMinimum;
 
             if (token_id === "near") {
-              balance = balanceData.result?.amount?.toString() || "0";
-            } else {
-              if (balanceData.result) {
-                balance = String.fromCharCode(...balanceData.result.result);
-                balance = balance ? balance.replace(/"/g, "") : "0";
-              }
+              balance = balanceData?.result?.amount?.toString() || balanceMinimum;
+            } else if (balanceData?.result?.result) {
+              balance = String.fromCharCode(...balanceData.result.result);
+              balance = balance ? balance.replace(/"/g, "") : balanceMinimum;
             }
-
+            
             return {
               timestamp,
               date: formatDate(timestamp, value),
               balance: balance
                 ? convertFTBalance(balance, tokens[token_id as keyof typeof tokens].decimals)
-                : "0",
+                : balanceMinimum,
             };
           });
 
           return {
             period,
-            data: balanceHistory.reverse(),
+            // Sort the balance history by timestamp in ascending order
+            data: balanceHistory.sort((a, b) => a.timestamp - b.timestamp),
           };
         } catch (error) {
           console.error(`Error fetching data for period ${period}:`, error);
@@ -185,7 +186,7 @@ export async function getAllTokenBalanceHistory(
           token_id,
         },
         orderBy: {
-          timestamp: 'desc'
+          timestamp: 'asc'
         },
         distinct: ['period']
       });

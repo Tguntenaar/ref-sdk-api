@@ -1,12 +1,13 @@
 import axios from "axios";
 import crypto from "crypto";
 import prisma from "../prisma";
+import NodeCache from "node-cache";
 
 
 const RPC_ENDPOINTS = [
+  "https://rpc.mainnet.fastnear.com/",
   "https://rpc.mainnet.near.org",
   "https://free.rpc.fastnear.com",
-  "https://rpc.mainnet.fastnear.com/",
   "https://near.lava.build",
 ];
 
@@ -16,6 +17,12 @@ const ARCHIVAL_RPC_ENDPOINTS = [
   "https://archival-rpc.mainnet.fastnear.com",
   "https://rpc.mainnet.near.org",
 ];
+
+const CACHE_EXPIRATION = 1000 * 10; // 10 seconds
+const cache = new NodeCache({
+  stdTTL: CACHE_EXPIRATION,
+  checkperiod: CACHE_EXPIRATION / 2,
+});
 
 export async function fetchFromRPC(body: any, disableCache: boolean = false, archival: boolean = false): Promise<any> {
   const requestHash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex')
@@ -44,7 +51,7 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
       }
     });
 
-    console.log(`accountExistenceIsFalse: ${accountExistenceIsFalse}`);
+    // console.log(`accountExistenceIsFalse: ${accountExistenceIsFalse}`);
 
     if (accountExistenceIsFalse) {
       // TODO don't make the RPC call here. Return 0
@@ -75,6 +82,14 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
 
   // Try each RPC endpoint in sequence
   for (const endpoint of usable_endpoints) {
+    // FIXME: Use node-cache to skip an endpoint for 10 sec if we just received a 429
+    const cacheKey = `rpc_endpoint_${endpoint}_429`;
+    const cached429 = cache.get(cacheKey);
+    if (cached429) {
+      console.log(`Skipping endpoint ${endpoint} for 10 seconds because we received a 429`);
+      continue;
+    }
+
     try {
 
       const headers: Record<string, string> = {
@@ -133,6 +148,7 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
 
         if (error.response?.status === 429) {
           console.error(`Received 429 Too Many Requests error from ${endpoint}:`, error.message);
+          cache.set(cacheKey, true, CACHE_EXPIRATION);
         } else {
           console.error(`RPC request failed for ${endpoint}:`, error);
         }
