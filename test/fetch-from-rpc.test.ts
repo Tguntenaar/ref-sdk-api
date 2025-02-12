@@ -67,8 +67,13 @@ describe("fetchFromRPC", () => {
     const body = { test: "allFail" };
     (mockedPrisma.rpcRequest.findFirst as jest.Mock).mockResolvedValue(null);
 
-    // Simulate a failure for all endpoints
-    mockedAxios.post.mockRejectedValue(new Error("Endpoint failure"));
+    // Reset mock and set up explicit rejections for each endpoint
+    mockedAxios.post.mockReset();
+    mockedAxios.post
+      .mockRejectedValueOnce(new Error("Endpoint 1 failure"))
+      .mockRejectedValueOnce(new Error("Endpoint 2 failure"))
+      .mockRejectedValueOnce(new Error("Endpoint 3 failure"))
+      .mockRejectedValueOnce(new Error("Endpoint 4 failure"));
 
     const result = await fetchFromRPC(body);
     expect(result).toBe(0);
