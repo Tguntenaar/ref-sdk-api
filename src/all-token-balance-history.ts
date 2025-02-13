@@ -21,10 +21,6 @@ export async function getAllTokenBalanceHistory(
 ) : Promise<Record<string, { timestamp: number, date: string, balance: string }[]>> {
   let rpcCallCount = 0;
 
-  // FIXME: we should know when the account was created + when the token was first introduced to this account
-  // That way we don't double query data that we already know.
-  // Near token has a constraint of having a minimum balance of 6.
-  
   const cachedData = cache.get(cacheKey);
   if (cachedData) {
     console.log(`Cached response for key: ${cacheKey}`);
@@ -79,7 +75,6 @@ export async function getAllTokenBalanceHistory(
     const endBlock = blockData.result.header.height;
     const BLOCKS_IN_ONE_HOUR = 3200;
 
-    // FIXME: This is a hack to get all the data since the last graph will most likely run into rate limits.
     // Shuffle the periodMap but keep "1Y" at index 0
     const shuffledPeriodMap = [periodMap[0], ...periodMap.slice(1).sort(() => Math.random() - 0.5)];
 
@@ -92,8 +87,6 @@ export async function getAllTokenBalanceHistory(
           const BLOCKS_IN_PERIOD = Math.floor(BLOCKS_IN_ONE_HOUR * value);
 
           const blockHeights = Array.from(
-            // FIXME: we call the RPC for each interval. Maybe we can reduce the RPC 
-            // calls here as well? We only need to know when the balance changed.
             { length: interval }, 
             (_, i) => endBlock - BLOCKS_IN_PERIOD * i
           ).filter((block) => block > 0);
@@ -108,7 +101,7 @@ export async function getAllTokenBalanceHistory(
           }, false, useArchival);
           rpcCallCount++;
           
-          // FIXME: we interpolate the timestamps into 10 minute buckets to not 
+          // We interpolate the timestamps into 10 minute buckets to not 
           // have to request the timestamp for each block from the RPC reducing 
           // the RPC call with: (the amount of blocks || intervals) - 1
           const blockTimestamps = interpolateTimestampsToTenMinutes(
@@ -150,7 +143,6 @@ export async function getAllTokenBalanceHistory(
           const balanceHistory = blockTimestamps.map((timestamp, index) => {
             const balanceData = balances[index];
            
-            // FIXME: This is a hack to handle the fact that the DAO contract can't have a balance of 0.
             const balanceMinimum = token_id === "near" ? "6" : "0";
             let balance = balanceMinimum;
 

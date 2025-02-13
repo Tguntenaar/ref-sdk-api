@@ -18,7 +18,7 @@ const ARCHIVAL_RPC_ENDPOINTS = [
   // "https://rpc.mainnet.near.org",
 ];
 
-const CACHE_EXPIRATION = 10; // 10 seconds
+const CACHE_EXPIRATION = 10;
 const cache = new NodeCache({
   stdTTL: CACHE_EXPIRATION,
   checkperiod: CACHE_EXPIRATION / 2,
@@ -38,7 +38,7 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
 
   // Check if we already know this account didn't exist at this block height
   if (accountId && blockHeight) {
-    const accountExistenceIsFalse = await prisma.accountBlockExistence.findFirst({
+    const accountDoesNotExist = await prisma.accountBlockExistence.findFirst({
       where: {
         accountId,
         blockHeight: {
@@ -51,9 +51,7 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
       }
     });
 
-    // console.log(`accountExistenceIsFalse: ${accountExistenceIsFalse}`);
-
-    if (accountExistenceIsFalse) {
+    if (accountDoesNotExist) {
       // TODO don't make the RPC call here. Return 0
       throw new Error(`Account ${accountId} did not exist at or before block ${blockHeight}`);
     }
@@ -80,9 +78,7 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
     usable_endpoints = ARCHIVAL_RPC_ENDPOINTS;
   }
 
-  // Try each RPC endpoint in sequence
   for (const endpoint of usable_endpoints) {
-    // FIXME: Use node-cache to skip an endpoint for 10 sec if we just received a 429
     const cacheKey = `rpc_endpoint_${endpoint}_429`;
     const cached429 = cache.get(cacheKey);
     if (cached429) {
