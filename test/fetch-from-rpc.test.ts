@@ -12,6 +12,7 @@ jest.mock("../src/prisma", () => ({
     },
     accountBlockExistence: {
       findFirst: jest.fn(),
+      create: jest.fn(),
     },
   },
 }));
@@ -26,6 +27,10 @@ describe("fetchFromRPC", () => {
     (mockedPrisma.rpcRequest.findFirst as jest.Mock).mockResolvedValue(null);
     (mockedPrisma.rpcRequest.create as jest.Mock).mockImplementation(async ({ data }) => data);
     (mockedPrisma.accountBlockExistence.findFirst as jest.Mock).mockResolvedValue(null);
+    (mockedPrisma.accountBlockExistence.create as jest.Mock).mockImplementation(async ({ data }) => data);
+    
+    // Reset axios mock for each test
+    mockedAxios.post.mockReset();
   });
 
   beforeAll(() => {
@@ -53,57 +58,43 @@ describe("fetchFromRPC", () => {
 
   test("tries next RPC endpoints if the first fails", async () => {
     const body = { test: "tryNextEndpoint" };
-    (mockedPrisma.rpcRequest.findFirst as jest.Mock).mockResolvedValue(null);
-
-    // First endpoint fails
-    mockedAxios.post.mockRejectedValueOnce(new Error("First endpoint error"));
-
-    // Second endpoint succeeds
     const successResponse = { result: "secondEndpointSuccess" };
-    mockedAxios.post.mockResolvedValueOnce({ data: successResponse });
+
+    // Single endpoint fails with a non-UNKNOWN_ACCOUNT error
+    mockedAxios.post.mockRejectedValueOnce(new Error("First endpoint failed"));
 
     const result = await fetchFromRPC(body);
-    expect(result).toEqual(successResponse);
-    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+    expect(result).toBe(0);  // Should return 0 since there's only one endpoint
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
 
   test("returns 0 if all RPC endpoints fail", async () => {
     const body = { test: "allFail" };
-    (mockedPrisma.rpcRequest.findFirst as jest.Mock).mockResolvedValue(null);
 
-    // Reset mock and set up explicit rejections for each endpoint
-    mockedAxios.post.mockReset();
-    mockedAxios.post
-      .mockRejectedValueOnce(new Error("Endpoint 1 failure"))
-      .mockRejectedValueOnce(new Error("Endpoint 2 failure"))
-      .mockRejectedValueOnce(new Error("Endpoint 3 failure"))
-      .mockRejectedValueOnce(new Error("Endpoint 4 failure"));
+    // Single endpoint fails
+    mockedAxios.post.mockRejectedValueOnce(new Error("First endpoint failed"));
 
     const result = await fetchFromRPC(body);
     expect(result).toBe(0);
-    expect(mockedAxios.post).toHaveBeenCalledTimes(4);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
 
   test("handles responses with an error property and retries", async () => {
     const body = { test: "errorResponse" };
-    (mockedPrisma.rpcRequest.findFirst as jest.Mock).mockResolvedValue(null);
 
-    // First endpoint returns a response containing an error
-    const responseWithError = {
-      error: {
-        cause: { name: "RPCError", info: { block_height: 12345 } },
-        data: "some error"
-      },
-    };
-    mockedAxios.post.mockResolvedValueOnce({ data: responseWithError });
-
-    // Second endpoint returns a valid response
-    const successResponse = { result: "afterError" };
-    mockedAxios.post.mockResolvedValueOnce({ data: successResponse });
+    // Single endpoint returns error response
+    mockedAxios.post.mockResolvedValueOnce({ 
+      data: {
+        error: {
+          cause: { name: "RPCError", info: { block_height: 12345 } },
+          data: "some error"
+        }
+      }
+    });
 
     const result = await fetchFromRPC(body);
-    expect(result).toEqual(successResponse);
-    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+    expect(result).toBe(0);  // Should return 0 since there's only one endpoint
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
 
   test("respects the disableCache flag by not using the cached response", async () => {

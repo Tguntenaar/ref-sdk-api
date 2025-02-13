@@ -131,32 +131,36 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
       });
 
       return data;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const errorMessage = error.response?.data?.error?.cause?.name;
-        
-        // Store information about non-existent accounts
-        if (errorMessage === 'UNKNOWN_ACCOUNT' && accountId && blockHeight) {
-          await prisma.accountBlockExistence.create({
-            data: {
-              accountId,
-              blockHeight,
-              exists: false
-            }
-          });
-  
-          return 0;
-        }
+    } catch (error: any) {
+      const isAxiosError = axios.isAxiosError(error);
+      const errorMessage = isAxiosError ? error.response?.data?.error?.cause?.name : undefined;
+      
+      // Store information about non-existent accounts and only return 0 for UNKNOWN_ACCOUNT
+      if (errorMessage === 'UNKNOWN_ACCOUNT' && accountId && blockHeight) {
+        await prisma.accountBlockExistence.create({
+          data: {
+            accountId,
+            blockHeight,
+            exists: false
+          }
+        });
 
-        if (error.response?.status === 429) {
-          console.error(`Received 429 Too Many Requests error from ${endpoint}:`, error.message);
-          cache.set(cacheKey, true, CACHE_EXPIRATION);
-        } else {
-          console.error(`RPC request failed for ${endpoint}:`, error);
-        }
+        // Return 0 only for UNKNOWN_ACCOUNT errors
+        return 0;
       }
+
+      if (isAxiosError && error.response?.status === 429) {
+        console.error(`Received 429 Too Many Requests error from ${endpoint}:`, error.message);
+        cache.set(cacheKey, true, CACHE_EXPIRATION);
+      } else {
+        console.error(`RPC request failed for ${endpoint}:`, error.message || error);
+      }
+      
+      // For all other errors, continue to next endpoint
+      continue;
     }
   }
 
+  // Only return 0 if all endpoints have been exhausted
   return 0;
 }
