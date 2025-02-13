@@ -28,7 +28,7 @@ export const check_registration = (
   });
 };
 
-export const native_usdc_has_upgrated = async (
+export const native_usdc_has_upgraded = async (
   tokenId: string,
   accountId: string
 ) => {
@@ -41,12 +41,12 @@ export const native_usdc_has_upgrated = async (
   } catch (error) {
     await check_registration(tokenId, accountId).then((is_registration) => {
       if (is_registration) {
-        return new Promise((resove) => {
-          resove({ available: "1", total: "1" });
+        return new Promise((resolve) => {
+          resolve({ available: "1", total: "1" });
         });
       } else {
-        return new Promise((resove) => {
-          resove(null);
+        return new Promise((resolve) => {
+          resolve(null);
         });
       }
     });
@@ -88,7 +88,7 @@ export const swapFromServer = async ({
 
     if (tokenRegistered === null) {
       if (NO_REQUIRED_REGISTRATION_TOKEN_IDS.includes(token.id)) {
-        const r = await native_usdc_has_upgrated(token.id, accountId);
+        const r = await native_usdc_has_upgraded(token.id, accountId);
         if (r) {
           tokenOutActions.push({
             methodName: "storage_deposit",
@@ -218,6 +218,9 @@ export const unWrapNear = async ({ amountIn }: { amountIn: string }) => {
 
 export async function fetchPikespeakEndpoint(endpoint: string) {
   try {
+    if (!process.env.PIKESPEAK_KEY) {
+      throw new Error("PIKESPEAK_KEY is not set");
+    }
     const options = {
       method: "GET",
       headers: {
@@ -255,7 +258,7 @@ export function deduplicateByTimestamp(data: any[]) {
 export async function fetchAdditionalPage(
   totalTxnsPerPage: number,
   treasuryDaoID: string,
-  lockupContract: string | null,
+  lockupContract: string | undefined,
   existingPageCount: number
 ) {
   const promises: any[] = [];
