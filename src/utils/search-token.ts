@@ -1,4 +1,4 @@
-import {tokens} from "../constants/tokens";
+import { tokens } from "../constants/tokens";
 
 export interface TokenMetadata {
   id: string;
@@ -11,7 +11,6 @@ export interface TokenMetadata {
 export const searchToken = async (
   id: string
 ): Promise<TokenMetadata | undefined> => {
-
   if (id.toLowerCase() === "near") {
     id = "wrap.near"; // Special case for NEAR
   }

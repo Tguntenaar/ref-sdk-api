@@ -1,12 +1,14 @@
 import axios from "axios";
-import prisma from './prisma';
+import prisma from "./prisma";
 
 type NearPriceCache = {
   get: (key: string) => any;
   set: (key: string, value: any, ttl: number) => void;
 };
 
-export async function getNearPrice(cache: NearPriceCache): Promise<number | null> {
+export async function getNearPrice(
+  cache: NearPriceCache
+): Promise<number | null> {
   const cacheKey = `near-price`;
   const cachedData = cache.get(cacheKey);
 
@@ -39,9 +41,9 @@ export async function getNearPrice(cache: NearPriceCache): Promise<number | null
         await prisma.nearPrice.create({
           data: {
             price,
-            source: endpoint
-          }
-        })
+            source: endpoint,
+          },
+        });
         cache.set(cacheKey, price, 50); // for 50 seconds
         return price;
       }

@@ -11,12 +11,14 @@ export async function getWhitelistTokens(account?: string | string[]) {
   }
 
   const fetchBalancesPromise = account
-    ? axios.get(`https://api.pikespeak.ai/account/balance/${account}`, {
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": process.env.PIKESPEAK_KEY || "",
-        },
-      }).then((res) => res.data)
+    ? axios
+        .get(`https://api.pikespeak.ai/account/balance/${account}`, {
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": process.env.PIKESPEAK_KEY || "",
+          },
+        })
+        .then((res) => res.data)
     : Promise.resolve([]);
 
   const fetchTokenPricePromises = Object.keys(tokens).map((id) => {
@@ -28,7 +30,9 @@ export async function getWhitelistTokens(account?: string | string[]) {
       )
       .then((res) => res.data)
       .catch((err) => {
-        console.error(`Error fetching price for token_id ${id}: ${err.message}`);
+        console.error(
+          `Error fetching price for token_id ${id}: ${err.message}`
+        );
         return { price: "N/A" }; // Default value for failed fetches
       });
   });

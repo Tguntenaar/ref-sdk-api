@@ -3,7 +3,6 @@ import crypto from "crypto";
 import prisma from "../prisma";
 import NodeCache from "node-cache";
 
-
 const RPC_ENDPOINTS = [
   "https://rpc.mainnet.fastnear.com/",
   // "https://rpc.mainnet.near.org",
@@ -24,16 +23,28 @@ const cache = new NodeCache({
   checkperiod: CACHE_EXPIRATION / 2,
 });
 
-export async function fetchFromRPC(body: any, disableCache: boolean = false, archival: boolean = false): Promise<any> {
-  const requestHash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex')
+export async function fetchFromRPC(
+  body: any,
+  disableCache: boolean = false,
+  archival: boolean = false
+): Promise<any> {
+  const requestHash = crypto
+    .createHash("sha256")
+    .update(JSON.stringify(body))
+    .digest("hex");
 
   // Extract account ID and block height from the request body if present
   let accountId: string | undefined;
   let blockHeight: number | undefined;
-  
-  if (body.params?.request_type === "view_account" || body.params?.request_type === "view_state") {
+
+  if (
+    body.params?.request_type === "view_account" ||
+    body.params?.request_type === "view_state"
+  ) {
     accountId = body.params.account_id;
-    blockHeight = body.params.block_id ? parseInt(body.params.block_id) : undefined;
+    blockHeight = body.params.block_id
+      ? parseInt(body.params.block_id)
+      : undefined;
   }
 
   // Check if we already know this account didn't exist at this block height
@@ -42,18 +53,20 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
       where: {
         accountId,
         blockHeight: {
-          lte: blockHeight
+          lte: blockHeight,
         },
-        exists: false
+        exists: false,
       },
       orderBy: {
-        blockHeight: 'desc'
-      }
+        blockHeight: "desc",
+      },
     });
 
     if (accountDoesNotExist) {
       // TODO don't make the RPC call here. Return 0
-      throw new Error(`Account ${accountId} did not exist at or before block ${blockHeight}`);
+      throw new Error(
+        `Account ${accountId} did not exist at or before block ${blockHeight}`
+      );
     }
   }
 
@@ -61,18 +74,18 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
     const existingRequest = await prisma.rpcRequest.findFirst({
       where: {
         requestHash,
-    },
-    orderBy: {
-      timestamp: 'desc'
-    }
-  });
+      },
+      orderBy: {
+        timestamp: "desc",
+      },
+    });
 
     if (existingRequest) {
       console.log(`Found cached RPC request for ${requestHash}`);
       return existingRequest.responseBody;
     }
   }
-  
+
   let usable_endpoints = RPC_ENDPOINTS;
   if (archival) {
     usable_endpoints = ARCHIVAL_RPC_ENDPOINTS;
@@ -82,15 +95,16 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
     const cacheKey = `rpc_endpoint_${endpoint}_429`;
     const cached429 = cache.get(cacheKey);
     if (cached429) {
-      console.log(`Skipping endpoint ${endpoint} for 10 seconds because we received a 429`);
+      console.log(
+        `Skipping endpoint ${endpoint} for 10 seconds because we received a 429`
+      );
       continue;
     }
 
     try {
-
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
-      }
+      };
 
       if (endpoint.includes("rpc.mainnet.fastnear.com")) {
         if (!process.env.FASTNEAR_API_KEY) {
@@ -108,7 +122,9 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
 
       // Check for RPC errors
       if (data.error) {
-        throw new Error(`RPC ${data.error.cause.name}: ${data.error.data} ${data.error.cause.info.block_height}`);
+        throw new Error(
+          `RPC ${data.error.cause.name}: ${data.error.data} ${data.error.cause.info.block_height}`
+        );
       }
 
       // Validate the response has required data
@@ -129,16 +145,18 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
       return data;
     } catch (error: any) {
       const isAxiosError = axios.isAxiosError(error);
-      const errorMessage = isAxiosError ? error.response?.data?.error?.cause?.name : undefined;
-      
+      const errorMessage = isAxiosError
+        ? error.response?.data?.error?.cause?.name
+        : undefined;
+
       // Store information about non-existent accounts and only return 0 for UNKNOWN_ACCOUNT
-      if (errorMessage === 'UNKNOWN_ACCOUNT' && accountId && blockHeight) {
+      if (errorMessage === "UNKNOWN_ACCOUNT" && accountId && blockHeight) {
         await prisma.accountBlockExistence.create({
           data: {
             accountId,
             blockHeight,
-            exists: false
-          }
+            exists: false,
+          },
         });
 
         // Return 0 only for UNKNOWN_ACCOUNT errors
@@ -146,12 +164,18 @@ export async function fetchFromRPC(body: any, disableCache: boolean = false, arc
       }
 
       if (isAxiosError && error.response?.status === 429) {
-        console.error(`Received 429 Too Many Requests error from ${endpoint}:`, error.message);
+        console.error(
+          `Received 429 Too Many Requests error from ${endpoint}:`,
+          error.message
+        );
         cache.set(cacheKey, true, CACHE_EXPIRATION);
       } else {
-        console.error(`RPC request failed for ${endpoint}:`, error.message || error);
+        console.error(
+          `RPC request failed for ${endpoint}:`,
+          error.message || error
+        );
       }
-      
+
       // For all other errors, continue to next endpoint
       continue;
     }
