@@ -1,6 +1,6 @@
 import axios from "axios";
 import Big from "big.js";
-import prisma from "./prisma"
+import prisma from "./prisma";
 
 type FTCache = {
   get: (key: string) => any;
@@ -67,9 +67,9 @@ export async function getFTTokens(account_id: string, cache: FTCache) {
     data: {
       account_id,
       totalCumulativeAmt,
-      fts
-    }
-  })
+      fts,
+    },
+  });
 
   // Prepare the final data
   const result = {

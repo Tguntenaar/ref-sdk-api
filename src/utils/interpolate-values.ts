@@ -13,7 +13,7 @@ export function interpolateTimestampsToTenMinutes(
   if (steps < 2) {
     throw new Error("Number of steps must be at least 2 for interpolation.");
   }
-  
+
   const TEN_MINUTES_MS = 10 * 60 * 1000; // 600,000 milliseconds
   const stepSize = (end - start) / (steps - 1);
   return Array.from({ length: steps }, (_, i) => {

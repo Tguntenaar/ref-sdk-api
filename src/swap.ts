@@ -12,7 +12,13 @@ export type SwapParams = {
   slippage: string;
 };
 
-export async function getSwap({ accountId, tokenIn, tokenOut, amountIn, slippage }: SwapParams) {
+export async function getSwap({
+  accountId,
+  tokenIn,
+  tokenOut,
+  amountIn,
+  slippage,
+}: SwapParams) {
   try {
     const isWrapNearInputToken = tokenIn === "wrap.near";
     const isWrapNearOutputToken = tokenOut === "wrap.near";
@@ -20,7 +26,9 @@ export async function getSwap({ accountId, tokenIn, tokenOut, amountIn, slippage
     const tokenOutData = await searchToken(tokenOut);
 
     if (!tokenInData || !tokenOutData) {
-      throw new Error(`Unable to find token(s) tokenInData: ${tokenInData?.name} tokenOutData: ${tokenOutData?.name}`);
+      throw new Error(
+        `Unable to find token(s) tokenInData: ${tokenInData?.name} tokenOutData: ${tokenOutData?.name}`
+      );
     }
 
     // (un)wrap NEAR
@@ -52,13 +60,17 @@ export async function getSwap({ accountId, tokenIn, tokenOut, amountIn, slippage
       swapRes = response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(`Failed to fetch swap path: ${error.response?.status} - ${error.response?.data?.message || error.message}`);
+        throw new Error(
+          `Failed to fetch swap path: ${error.response?.status} - ${
+            error.response?.data?.message || error.message
+          }`
+        );
       }
       throw error;
     }
 
     if (!swapRes.result_data) {
-      throw new Error('No swap path found between the specified tokens');
+      throw new Error("No swap path found between the specified tokens");
     }
 
     const receiveAmount = Big(swapRes.result_data.amount_out)
@@ -82,6 +94,6 @@ export async function getSwap({ accountId, tokenIn, tokenOut, amountIn, slippage
     if (error instanceof Error) {
       throw new Error(`Swap failed: ${error.message}`);
     }
-    throw new Error('An unexpected error occurred during swap');
+    throw new Error("An unexpected error occurred during swap");
   }
 }
