@@ -3,8 +3,24 @@ import axios from "axios";
 import { BalanceResp } from "./utils/interface";
 import { tokens } from "./constants/tokens";
 
-export async function getWhitelistTokens(account?: string | string[]) {
+type WhitelistTokensCache = {
+  get: (key: string) => any;
+  set: (key: string, value: any, ttl: number) => void;
+};
+
+export async function getWhitelistTokens(
+  account: string,
+  cache: WhitelistTokensCache
+) {
   // Fetch prices and balances concurrently
+  const cacheKey = `${account}-whitelist-tokens`;
+
+  const cachedData = cache.get(cacheKey);
+
+  if (cachedData) {
+    console.log(`Cached response for key: ${cacheKey}`);
+    return cachedData;
+  }
 
   if (!process.env.PIKESPEAK_KEY) {
     throw new Error("PIKESPEAK_KEY is not set");
@@ -72,12 +88,19 @@ export async function getWhitelistTokens(account?: string | string[]) {
           : priceData.price,
       symbol: token.symbol,
       name: token.name,
-      icon: token.icon,
+      icon:
+        id === "near"
+          ? "https://near.org/_next/static/media/near-icon.2e682d59.svg"
+          : token.icon,
     };
   });
 
   // Return sorted tokens based on balance
-  return simplifiedTokens.sort(
+
+  const result = simplifiedTokens.sort(
     (a, b) => parseFloat(b.parsedBalance) - parseFloat(a.parsedBalance)
   );
+
+  cache.set(cacheKey, result, 600);
+  return result;
 }

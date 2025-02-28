@@ -211,6 +211,7 @@ export const unWrapNear = async ({ amountIn }: { amountIn: string }) => {
           amount: toNonDivisibleNumber(24, amountIn),
         },
         amount: ONE_YOCTO_NEAR,
+        gas: "30000000000000",
       },
     ],
   };
@@ -392,6 +393,7 @@ export async function getUserStakeBalances(
 
           // Return cached balance if available
           if (balanceCache[cacheKey] !== undefined) {
+            console.log("Cached response for key:", cacheKey);
             return balanceCache[cacheKey];
           }
 
@@ -417,7 +419,7 @@ export async function getUserStakeBalances(
             useArchival
           );
 
-          const balance = response?.result.result
+          const balance = response?.result?.result
             ? parseInt(
                 response.result.result
                   .map((c: any) => String.fromCharCode(c))
