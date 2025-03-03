@@ -61,8 +61,8 @@ app.get("/api/token-metadata", async (req: Request, res: Response) => {
 
 app.get("/api/whitelist-tokens", async (req: Request, res: Response) => {
   try {
-    const { account } = req.query as { account?: string | string[] };
-    const tokens = await getWhitelistTokens(account);
+    const { account } = req.query as { account: string };
+    const tokens = await getWhitelistTokens(account, cache);
     return res.json(tokens);
   } catch (error) {
     console.error(error);
@@ -218,7 +218,6 @@ app.get(
         account_id,
         token_id
       );
-
       return res.json(result);
     } catch (error) {
       console.error("Error fetching all balance history:", error);

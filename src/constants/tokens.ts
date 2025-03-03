@@ -14,7 +14,7 @@ export const tokens: Record<string, TokenMetadata> = {
     spec: "ft-1.0.0",
     name: "NEAR",
     symbol: "NEAR",
-    icon: "https://ipfs.near.social/ipfs/bafkreifnyxk6cssapw7j5vc6zuzwl7vt6o5ddspoo5lcmbvtdrcmfozqyu",
+    icon: "https://near.org/_next/static/media/near-icon.2e682d59.svg",
     reference: null,
     reference_hash: null,
     decimals: 24,
