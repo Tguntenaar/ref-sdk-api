@@ -88,10 +88,7 @@ export async function getWhitelistTokens(
           : priceData.price,
       symbol: token.symbol,
       name: token.name,
-      icon:
-        id === "near"
-          ? "https://near.org/_next/static/media/near-icon.2e682d59.svg"
-          : token.icon,
+      icon: id === "near" ? tokens?.[id]?.icon : token.icon,
     };
   });
 
