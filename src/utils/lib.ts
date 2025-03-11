@@ -332,7 +332,7 @@ export async function getUserStakePoolsForBlockHeights(
 
   // Fetch staking transactions if at least one block height is missing from cache
   const { data } = await axios.get(
-    `https://api3.nearblocks.io/v1/account/${account_id}/stake-txns?per_page=250`,
+    `https://api3.nearblocks.io/v1/account/${account_id}/stake-txns?per_page=75`,
     {
       headers: {
         Authorization: `Bearer ${process.env.NEARBLOCKS_API_KEY}`,
