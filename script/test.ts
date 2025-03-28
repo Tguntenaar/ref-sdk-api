@@ -1,7 +1,7 @@
 import axios, { AxiosResponse } from "axios";
 import chalk from "chalk";
 
-const PROD_URL = "https://ref-sdk-api.fly.dev";
+const PROD_URL = "https://ref-sdk-api-2.fly.dev";
 const LOCAL_URL = "http://localhost:3000";
 
 type QueryParams = {
